@@ -1,0 +1,52 @@
+package client
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"fmt"
+	"net/http"
+	"time"
+)
+
+type STS struct {
+	baseURL string
+	client  *http.Client
+}
+
+type validateResponse struct {
+	Allowed bool   `json:"allowed"`
+	Reason  string `json:"reason,omitempty"`
+}
+
+func NewSTS(baseURL string) *STS {
+	return &STS{baseURL: baseURL, client: &http.Client{Timeout: 5 * time.Second}}
+}
+
+func (c *STS) ValidateToken(ctx context.Context, sessionID, token string) error {
+	body, err := json.Marshal(map[string]string{"sessionId": sessionID, "token": token})
+	if err != nil {
+		return err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/tokens/validate", bytes.NewReader(body))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return fmt.Errorf("sts returned status %d", resp.StatusCode)
+	}
+	var parsed validateResponse
+	if err := json.NewDecoder(resp.Body).Decode(&parsed); err != nil {
+		return err
+	}
+	if !parsed.Allowed {
+		return fmt.Errorf("token rejected: %s", parsed.Reason)
+	}
+	return nil
+}

@@ -6,6 +6,7 @@ import (
 )
 
 var ErrOwnerMismatch = ownerMismatchError{}
+var ErrUserMismatch = userMismatchError{}
 
 type ownerMismatchError struct{}
 
@@ -13,7 +14,13 @@ func (ownerMismatchError) Error() string {
 	return "session is owned by another proxy dataplane instance"
 }
 
-func (s *Service) ValidateSession(ctx context.Context, sessionID, token string) error {
+type userMismatchError struct{}
+
+func (userMismatchError) Error() string {
+	return "authenticated user does not own the session"
+}
+
+func (s *Service) ValidateSession(ctx context.Context, sessionID, token, userID string) error {
 	if err := s.sts.ValidateToken(ctx, sessionID, token); err != nil {
 		return err
 	}
@@ -23,6 +30,9 @@ func (s *Service) ValidateSession(ctx context.Context, sessionID, token string) 
 	}
 	if session.OwnerPodID != s.pod.PodID || session.OwnerInstanceID != s.pod.InstanceID {
 		return ErrOwnerMismatch
+	}
+	if session.UserID != userID {
+		return ErrUserMismatch
 	}
 	return nil
 }

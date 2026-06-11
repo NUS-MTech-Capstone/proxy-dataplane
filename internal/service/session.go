@@ -14,6 +14,7 @@ var ErrOwnerMismatch = ownerMismatchError{}
 var ErrUserMismatch = userMismatchError{}
 var ErrSessionAlreadyActive = errors.New("session already has an active writer")
 var ErrSessionNotActive = errors.New("session is not active")
+var ErrInvalidSessionMode = errors.New("session mode must be owner or observer")
 
 type ownerMismatchError struct{}
 
@@ -28,12 +29,15 @@ func (userMismatchError) Error() string {
 }
 
 func (s *Service) ValidateSession(ctx context.Context, sessionID, token, userID string) error {
-	_, err := s.AuthorizeSession(ctx, sessionID, token, userID)
+	_, err := s.AuthorizeSession(ctx, sessionID, token, userID, "owner")
 	return err
 }
 
-func (s *Service) AuthorizeSession(ctx context.Context, sessionID, token, userID string) (model.Session, error) {
-	if err := s.sts.ValidateToken(ctx, sessionID, userID, "owner", token); err != nil {
+func (s *Service) AuthorizeSession(ctx context.Context, sessionID, token, userID, mode string) (model.Session, error) {
+	if mode != "owner" && mode != "observer" {
+		return model.Session{}, ErrInvalidSessionMode
+	}
+	if err := s.sts.ValidateToken(ctx, sessionID, userID, mode, token); err != nil {
 		return model.Session{}, err
 	}
 	session, err := s.sm.GetSession(ctx, sessionID)
@@ -43,7 +47,7 @@ func (s *Service) AuthorizeSession(ctx context.Context, sessionID, token, userID
 	if session.OwnerPodID != s.pod.PodID || session.OwnerInstanceID != s.pod.InstanceID {
 		return model.Session{}, ErrOwnerMismatch
 	}
-	if session.UserID != userID {
+	if mode == "owner" && session.UserID != userID {
 		return model.Session{}, ErrUserMismatch
 	}
 	if session.Status != model.SessionStatusActive {
@@ -87,12 +91,52 @@ func (s *Service) AbortSession(sessionID string) {
 	s.removeActive(sessionID)
 }
 
+// DisconnectSession releases the active writer and stops its heartbeat. The
+// Session Manager lease remains active briefly so the owner can rejoin.
+func (s *Service) DisconnectSession(sessionID string) {
+	s.removeActive(sessionID)
+}
+
 func (s *Service) CloseSession(ctx context.Context, sessionID string) {
 	s.removeActive(sessionID)
 	closeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 	defer cancel()
 	if err := s.sm.CloseSession(closeCtx, sessionID, s.pod.PodID, s.pod.InstanceID); err != nil {
 		log.Printf("close session failed sessionId=%s error=%v", sessionID, err)
+	}
+}
+
+func (s *Service) Subscribe(sessionID string) (<-chan []byte, func()) {
+	ch := make(chan []byte, 16)
+	s.mu.Lock()
+	if s.observers[sessionID] == nil {
+		s.observers[sessionID] = make(map[chan []byte]struct{})
+	}
+	s.observers[sessionID][ch] = struct{}{}
+	s.mu.Unlock()
+
+	return ch, func() {
+		s.mu.Lock()
+		if subscribers := s.observers[sessionID]; subscribers != nil {
+			delete(subscribers, ch)
+			if len(subscribers) == 0 {
+				delete(s.observers, sessionID)
+			}
+		}
+		s.mu.Unlock()
+	}
+}
+
+func (s *Service) Publish(sessionID string, output []byte) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for ch := range s.observers[sessionID] {
+		message := append([]byte(nil), output...)
+		select {
+		case ch <- message:
+		default:
+			// A slow observer must not block the active terminal writer.
+		}
 	}
 }
 

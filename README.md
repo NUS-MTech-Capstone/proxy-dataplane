@@ -39,6 +39,14 @@ GET /healthz
 GET /sessions/{sessionId}/ws
 ```
 
+Owner connections use the URL as returned for start/rejoin. Observer connections
+use `?mode=observe` and an observer session token. Observer connections are
+read-only and receive terminal output produced after they connect.
+
+When an owner WebSocket disconnects, the dataplane stops heartbeating but leaves
+the session active until its Session Manager lease expires, allowing a short
+rejoin window.
+
 The WebSocket endpoint expects AWS ALB Cognito authentication. The ALB validates
 the Cognito token and forwards the claims JWT in `x-amzn-oidc-data`. The
 dataplane parses the `sub` claim and requires it to match the session's

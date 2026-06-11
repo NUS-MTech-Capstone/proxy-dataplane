@@ -71,6 +71,53 @@ func TestValidateSessionRejectsAuthenticatedUserMismatch(t *testing.T) {
 	}
 }
 
+func TestAuthorizeObserverAllowsDifferentAuthenticatedUser(t *testing.T) {
+	validator := &fakeTokenValidator{}
+	svc := New(
+		fakeSessionManager{session: model.Session{
+			SessionID:       "sess-1",
+			UserID:          "owner-123",
+			OwnerPodID:      "pod-1",
+			OwnerInstanceID: "instance-1",
+			Status:          model.SessionStatusActive,
+		}},
+		validator,
+		nil,
+		model.ProxyPod{PodID: "pod-1", InstanceID: "instance-1"},
+		time.Second,
+	)
+
+	if _, err := svc.AuthorizeSession(t.Context(), "sess-1", "token", "observer-456", "observer"); err != nil {
+		t.Fatalf("AuthorizeSession() error = %v", err)
+	}
+	if validator.mode != "observer" || validator.userID != "observer-456" {
+		t.Fatalf("token validation = %#v, want observer mode and authenticated user", validator)
+	}
+}
+
+func TestPublishSendsOutputToObservers(t *testing.T) {
+	svc := New(
+		fakeSessionManager{},
+		&fakeTokenValidator{},
+		fakeExecutor{},
+		model.ProxyPod{},
+		time.Second,
+	)
+	outputs, unsubscribe := svc.Subscribe("sess-1")
+	defer unsubscribe()
+
+	svc.Publish("sess-1", []byte("command output"))
+
+	select {
+	case output := <-outputs:
+		if got, want := string(output), "command output"; got != want {
+			t.Fatalf("output = %q, want %q", got, want)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("observer did not receive published output")
+	}
+}
+
 func TestStartSessionAllowsOnlyOneWriter(t *testing.T) {
 	svc := New(
 		fakeSessionManager{},
@@ -186,6 +233,28 @@ func TestActiveSessionHeartbeatsAndCloses(t *testing.T) {
 	defer sm.mu.Unlock()
 	if len(sm.closedSessions) != 1 || sm.closedSessions[0] != "sess-1" {
 		t.Fatalf("closed sessions = %#v, want sess-1", sm.closedSessions)
+	}
+}
+
+func TestDisconnectLeavesSessionRejoinable(t *testing.T) {
+	sm := &recordingSessionManager{}
+	svc := New(
+		sm,
+		&fakeTokenValidator{},
+		fakeExecutor{},
+		model.ProxyPod{PodID: "pod-1", InstanceID: "instance-1"},
+		time.Hour,
+	)
+
+	if _, err := svc.StartSession(t.Context(), "sess-1"); err != nil {
+		t.Fatalf("StartSession() error = %v", err)
+	}
+	svc.DisconnectSession("sess-1")
+
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
+	if len(sm.closedSessions) != 0 {
+		t.Fatalf("closed sessions = %#v, want none after disconnect", sm.closedSessions)
 	}
 }
 

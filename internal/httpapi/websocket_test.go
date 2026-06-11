@@ -3,6 +3,7 @@ package httpapi
 import (
 	"bufio"
 	"net"
+	"net/http/httptest"
 	"testing"
 )
 
@@ -50,5 +51,26 @@ func TestReadMessageRejectsUnmaskedClientPayload(t *testing.T) {
 
 	if _, err := conn.ReadMessage(); err == nil {
 		t.Fatal("ReadMessage() error = nil, want unmasked frame rejection")
+	}
+}
+
+func TestSessionMode(t *testing.T) {
+	tests := []struct {
+		query string
+		mode  string
+		ok    bool
+	}{
+		{query: "", mode: "owner", ok: true},
+		{query: "?mode=owner", mode: "owner", ok: true},
+		{query: "?mode=observe", mode: "observer", ok: true},
+		{query: "?mode=observer", mode: "observer", ok: true},
+		{query: "?mode=write", ok: false},
+	}
+	for _, tt := range tests {
+		req := httptest.NewRequest("GET", "/sessions/sess-1/ws"+tt.query, nil)
+		mode, ok := sessionMode(req)
+		if mode != tt.mode || ok != tt.ok {
+			t.Errorf("sessionMode(%q) = (%q, %v), want (%q, %v)", tt.query, mode, ok, tt.mode, tt.ok)
+		}
 	}
 }

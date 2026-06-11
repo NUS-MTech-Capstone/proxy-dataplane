@@ -52,6 +52,9 @@ Authorization: Bearer <token>
 
 or as `?token=<token>` for simple local testing.
 
+The session token must belong to the authenticated Cognito user and contain
+`mode: "owner"`. Observer tokens cannot open a writable terminal.
+
 For direct local testing without an ALB, also provide a simulated
 `x-amzn-oidc-data` header containing a three-part JWT with a matching `sub`
 claim. The dataplane intentionally does not verify this JWT because production
@@ -79,6 +82,8 @@ dataplane, agent, and STS outside local development.
 
 Only one writer may be connected to a session. The dataplane heartbeats the
 session while connected and closes the Session Manager record on disconnect.
+If Session Manager rejects a heartbeat because ownership or session state is no
+longer valid, the dataplane terminates the live WebSocket.
 
 This MVP command endpoint is not a persistent PTY: shell state such as `cd`,
 environment changes, full-screen programs, and terminal resize are not

@@ -33,7 +33,7 @@ func (s *Service) ValidateSession(ctx context.Context, sessionID, token, userID 
 }
 
 func (s *Service) AuthorizeSession(ctx context.Context, sessionID, token, userID string) (model.Session, error) {
-	if err := s.sts.ValidateToken(ctx, sessionID, token); err != nil {
+	if err := s.sts.ValidateToken(ctx, sessionID, userID, "owner", token); err != nil {
 		return model.Session{}, err
 	}
 	session, err := s.sm.GetSession(ctx, sessionID)
@@ -52,17 +52,17 @@ func (s *Service) AuthorizeSession(ctx context.Context, sessionID, token, userID
 	return session, nil
 }
 
-func (s *Service) StartSession(ctx context.Context, sessionID string) error {
+func (s *Service) StartSession(ctx context.Context, sessionID string) (context.Context, error) {
 	s.mu.Lock()
 	if _, exists := s.active[sessionID]; exists {
 		s.mu.Unlock()
-		return ErrSessionAlreadyActive
+		return nil, ErrSessionAlreadyActive
 	}
-	heartbeatCtx, cancel := context.WithCancel(ctx)
+	sessionCtx, cancel := context.WithCancel(ctx)
 	s.active[sessionID] = cancel
 	s.mu.Unlock()
-	go s.sessionHeartbeatLoop(heartbeatCtx, sessionID)
-	return nil
+	go s.sessionHeartbeatLoop(sessionCtx, cancel, sessionID)
+	return sessionCtx, nil
 }
 
 func (s *Service) ExecuteCommand(ctx context.Context, session model.Session, token, command string) (connection.Result, error) {
@@ -91,7 +91,7 @@ func (s *Service) CloseSession(ctx context.Context, sessionID string) {
 	s.removeActive(sessionID)
 	closeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 	defer cancel()
-	if err := s.sm.CloseSession(closeCtx, sessionID); err != nil {
+	if err := s.sm.CloseSession(closeCtx, sessionID, s.pod.PodID, s.pod.InstanceID); err != nil {
 		log.Printf("close session failed sessionId=%s error=%v", sessionID, err)
 	}
 }
@@ -106,13 +106,21 @@ func (s *Service) removeActive(sessionID string) {
 	}
 }
 
-func (s *Service) sessionHeartbeatLoop(ctx context.Context, sessionID string) {
-	heartbeat := func() {
+func (s *Service) sessionHeartbeatLoop(ctx context.Context, cancel context.CancelFunc, sessionID string) {
+	heartbeat := func() bool {
 		if err := s.sm.HeartbeatSession(ctx, sessionID, s.pod.PodID, s.pod.InstanceID); err != nil && ctx.Err() == nil {
 			log.Printf("session heartbeat failed sessionId=%s error=%v", sessionID, err)
+			var terminal interface{ Terminal() bool }
+			if errors.As(err, &terminal) && terminal.Terminal() {
+				cancel()
+				return false
+			}
 		}
+		return true
 	}
-	heartbeat()
+	if !heartbeat() {
+		return
+	}
 	ticker := time.NewTicker(s.interval)
 	defer ticker.Stop()
 	for {
@@ -120,7 +128,9 @@ func (s *Service) sessionHeartbeatLoop(ctx context.Context, sessionID string) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			heartbeat()
+			if !heartbeat() {
+				return
+			}
 		}
 	}
 }

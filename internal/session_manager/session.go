@@ -31,8 +31,11 @@ func (c *Client) HeartbeatSession(ctx context.Context, sessionID, podID, instanc
 	return c.post(ctx, "/sessions/"+sessionID+"/heartbeat", map[string]string{"ownerPodId": podID, "ownerInstanceId": instanceID}, nil)
 }
 
-func (c *Client) CloseSession(ctx context.Context, sessionID string) error {
-	return c.post(ctx, "/sessions/"+sessionID+"/close", map[string]string{}, nil)
+func (c *Client) CloseSession(ctx context.Context, sessionID, podID, instanceID string) error {
+	return c.post(ctx, "/sessions/"+sessionID+"/close", map[string]string{
+		"ownerPodId":      podID,
+		"ownerInstanceId": instanceID,
+	}, nil)
 }
 
 func (c *Client) post(ctx context.Context, path string, req any, out any) error {
@@ -51,10 +54,22 @@ func (c *Client) post(ctx context.Context, path string, req any, out any) error 
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return fmt.Errorf("session-manager returned status %d", resp.StatusCode)
+		return ResponseError{StatusCode: resp.StatusCode}
 	}
 	if out == nil {
 		return nil
 	}
 	return json.NewDecoder(resp.Body).Decode(out)
+}
+
+type ResponseError struct {
+	StatusCode int
+}
+
+func (e ResponseError) Error() string {
+	return fmt.Sprintf("session-manager returned status %d", e.StatusCode)
+}
+
+func (e ResponseError) Terminal() bool {
+	return e.StatusCode >= 400 && e.StatusCode < 500
 }

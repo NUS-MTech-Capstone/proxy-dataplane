@@ -13,8 +13,13 @@ type validateResponse struct {
 	Reason  string `json:"reason,omitempty"`
 }
 
-func (c *Client) ValidateToken(ctx context.Context, sessionID, token string) error {
-	body, err := json.Marshal(map[string]string{"sessionId": sessionID, "token": token})
+func (c *Client) ValidateToken(ctx context.Context, sessionID, userID, mode, token string) error {
+	body, err := json.Marshal(map[string]string{
+		"sessionId": sessionID,
+		"userId":    userID,
+		"mode":      mode,
+		"token":     token,
+	})
 	if err != nil {
 		return err
 	}

@@ -14,11 +14,11 @@ type SessionManager interface {
 	HeartbeatPod(context.Context, model.ProxyPod) error
 	GetSession(context.Context, string) (model.Session, error)
 	HeartbeatSession(context.Context, string, string, string) error
-	CloseSession(context.Context, string) error
+	CloseSession(context.Context, string, string, string) error
 }
 
 type TokenValidator interface {
-	ValidateToken(context.Context, string, string) error
+	ValidateToken(context.Context, string, string, string, string) error
 }
 
 type Service struct {

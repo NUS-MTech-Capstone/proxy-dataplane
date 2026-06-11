@@ -22,11 +22,22 @@ func (f fakeSessionManager) GetSession(context.Context, string) (model.Session, 
 func (fakeSessionManager) HeartbeatSession(context.Context, string, string, string) error {
 	return nil
 }
-func (fakeSessionManager) CloseSession(context.Context, string) error { return nil }
+func (fakeSessionManager) CloseSession(context.Context, string, string, string) error { return nil }
 
-type fakeTokenValidator struct{}
+type fakeTokenValidator struct {
+	sessionID string
+	userID    string
+	mode      string
+	token     string
+}
 
-func (fakeTokenValidator) ValidateToken(context.Context, string, string) error { return nil }
+func (f *fakeTokenValidator) ValidateToken(_ context.Context, sessionID, userID, mode, token string) error {
+	f.sessionID = sessionID
+	f.userID = userID
+	f.mode = mode
+	f.token = token
+	return nil
+}
 
 type fakeExecutor struct{}
 
@@ -35,6 +46,7 @@ func (fakeExecutor) Execute(context.Context, connection.Command) (connection.Res
 }
 
 func TestValidateSessionRejectsAuthenticatedUserMismatch(t *testing.T) {
+	validator := &fakeTokenValidator{}
 	svc := New(
 		fakeSessionManager{session: model.Session{
 			SessionID:       "sess-1",
@@ -43,7 +55,7 @@ func TestValidateSessionRejectsAuthenticatedUserMismatch(t *testing.T) {
 			OwnerInstanceID: "instance-1",
 			Status:          model.SessionStatusActive,
 		}},
-		fakeTokenValidator{},
+		validator,
 		nil,
 		model.ProxyPod{PodID: "pod-1", InstanceID: "instance-1"},
 		time.Second,
@@ -53,23 +65,27 @@ func TestValidateSessionRejectsAuthenticatedUserMismatch(t *testing.T) {
 	if err != ErrUserMismatch {
 		t.Fatalf("ValidateSession() error = %v, want %v", err, ErrUserMismatch)
 	}
+	if validator.sessionID != "sess-1" || validator.userID != "other-user" ||
+		validator.mode != "owner" || validator.token != "token" {
+		t.Fatalf("token validation = %#v, want session/user/owner/token binding", validator)
+	}
 }
 
 func TestStartSessionAllowsOnlyOneWriter(t *testing.T) {
 	svc := New(
 		fakeSessionManager{},
-		fakeTokenValidator{},
+		&fakeTokenValidator{},
 		fakeExecutor{},
 		model.ProxyPod{PodID: "pod-1", InstanceID: "instance-1"},
 		time.Hour,
 	)
 
-	if err := svc.StartSession(t.Context(), "sess-1"); err != nil {
+	if _, err := svc.StartSession(t.Context(), "sess-1"); err != nil {
 		t.Fatal(err)
 	}
 	defer svc.AbortSession("sess-1")
 
-	if err := svc.StartSession(t.Context(), "sess-1"); err != ErrSessionAlreadyActive {
+	if _, err := svc.StartSession(t.Context(), "sess-1"); err != ErrSessionAlreadyActive {
 		t.Fatalf("StartSession() error = %v, want %v", err, ErrSessionAlreadyActive)
 	}
 }
@@ -80,6 +96,7 @@ type recordingSessionManager struct {
 	podHeartbeats     []model.ProxyPod
 	sessionHeartbeats []string
 	closedSessions    []string
+	heartbeatErr      error
 }
 
 func (r *recordingSessionManager) RegisterPod(_ context.Context, pod model.ProxyPod) error {
@@ -104,10 +121,10 @@ func (r *recordingSessionManager) HeartbeatSession(_ context.Context, sessionID,
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.sessionHeartbeats = append(r.sessionHeartbeats, sessionID)
-	return nil
+	return r.heartbeatErr
 }
 
-func (r *recordingSessionManager) CloseSession(_ context.Context, sessionID string) error {
+func (r *recordingSessionManager) CloseSession(_ context.Context, sessionID, _, _ string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.closedSessions = append(r.closedSessions, sessionID)
@@ -118,7 +135,7 @@ func TestStartRegistersPodAndSendsHeartbeat(t *testing.T) {
 	sm := &recordingSessionManager{}
 	svc := New(
 		sm,
-		fakeTokenValidator{},
+		&fakeTokenValidator{},
 		fakeExecutor{},
 		model.ProxyPod{PodID: "pod-1", InstanceID: "instance-1", MaxSessions: 50},
 		5*time.Millisecond,
@@ -149,13 +166,13 @@ func TestActiveSessionHeartbeatsAndCloses(t *testing.T) {
 	sm := &recordingSessionManager{}
 	svc := New(
 		sm,
-		fakeTokenValidator{},
+		&fakeTokenValidator{},
 		fakeExecutor{},
 		model.ProxyPod{PodID: "pod-1", InstanceID: "instance-1"},
 		5*time.Millisecond,
 	)
 
-	if err := svc.StartSession(t.Context(), "sess-1"); err != nil {
+	if _, err := svc.StartSession(t.Context(), "sess-1"); err != nil {
 		t.Fatalf("StartSession() error = %v", err)
 	}
 	waitFor(t, func() bool {
@@ -169,6 +186,32 @@ func TestActiveSessionHeartbeatsAndCloses(t *testing.T) {
 	defer sm.mu.Unlock()
 	if len(sm.closedSessions) != 1 || sm.closedSessions[0] != "sess-1" {
 		t.Fatalf("closed sessions = %#v, want sess-1", sm.closedSessions)
+	}
+}
+
+type terminalHeartbeatError struct{}
+
+func (terminalHeartbeatError) Error() string  { return "heartbeat rejected" }
+func (terminalHeartbeatError) Terminal() bool { return true }
+
+func TestTerminalHeartbeatFailureCancelsSession(t *testing.T) {
+	sm := &recordingSessionManager{heartbeatErr: terminalHeartbeatError{}}
+	svc := New(
+		sm,
+		&fakeTokenValidator{},
+		fakeExecutor{},
+		model.ProxyPod{PodID: "pod-1", InstanceID: "instance-1"},
+		time.Hour,
+	)
+
+	sessionCtx, err := svc.StartSession(t.Context(), "sess-1")
+	if err != nil {
+		t.Fatalf("StartSession() error = %v", err)
+	}
+	select {
+	case <-sessionCtx.Done():
+	case <-time.After(time.Second):
+		t.Fatal("session context was not canceled after terminal heartbeat failure")
 	}
 }
 

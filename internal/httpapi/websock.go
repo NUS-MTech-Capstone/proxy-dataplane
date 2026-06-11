@@ -35,7 +35,8 @@ func (s *Server) ws(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusForbidden, err.Error())
 		return
 	}
-	if err := s.svc.StartSession(r.Context(), sessionID); err != nil {
+	sessionCtx, err := s.svc.StartSession(r.Context(), sessionID)
+	if err != nil {
 		writeError(w, http.StatusConflict, err.Error())
 		return
 	}
@@ -47,6 +48,10 @@ func (s *Server) ws(w http.ResponseWriter, r *http.Request) {
 	}
 	defer conn.Close()
 	defer s.svc.CloseSession(r.Context(), sessionID)
+	go func() {
+		<-sessionCtx.Done()
+		_ = conn.Close()
+	}()
 	log.Printf("SessionStarted sessionId=%s userId=%s", sessionID, user.Subject)
 
 	runtime := targetsession.New(func(ctx context.Context, command string) (connection.Result, error) {
@@ -64,7 +69,7 @@ func (s *Server) ws(w http.ResponseWriter, r *http.Request) {
 			}
 			return
 		}
-		output, executeErr := runtime.HandleInput(r.Context(), msg)
+		output, executeErr := runtime.HandleInput(sessionCtx, msg)
 		if executeErr != nil {
 			output = append(output, []byte("command failed\r\n$ ")...)
 		}

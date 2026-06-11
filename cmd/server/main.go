@@ -8,6 +8,7 @@ import (
 	"syscall"
 
 	"github.com/NUS-MTech-Capstone/access-proxy/internal/config"
+	"github.com/NUS-MTech-Capstone/access-proxy/internal/connect"
 	"github.com/NUS-MTech-Capstone/access-proxy/internal/httpapi"
 	"github.com/NUS-MTech-Capstone/access-proxy/internal/model"
 	"github.com/NUS-MTech-Capstone/access-proxy/internal/service"
@@ -27,7 +28,14 @@ func main() {
 		Status:       "READY",
 		MaxSessions:  cfg.MaxSessions,
 	}
-	svc := service.New(session_manager.NewSessionManager(cfg.SessionManagerURL), sts.NewSTS(cfg.STSURL), pod, cfg.HeartbeatInterval)
+	executor := connect.NewAgent(cfg.AgentURLTemplate, cfg.CommandTimeout)
+	svc := service.New(
+		session_manager.NewSessionManager(cfg.SessionManagerURL),
+		sts.NewSTS(cfg.STSURL),
+		executor,
+		pod,
+		cfg.HeartbeatInterval,
+	)
 	if err := svc.Start(ctx); err != nil {
 		log.Fatalf("register proxy dataplane failed: %v", err)
 	}

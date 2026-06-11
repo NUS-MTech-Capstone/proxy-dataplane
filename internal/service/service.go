@@ -5,6 +5,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/NUS-MTech-Capstone/access-proxy/internal/connection"
 	"github.com/NUS-MTech-Capstone/access-proxy/internal/model"
 )
 
@@ -23,12 +24,20 @@ type TokenValidator interface {
 type Service struct {
 	sm       SessionManager
 	sts      TokenValidator
+	executor connection.Executor
 	pod      model.ProxyPod
 	mu       sync.RWMutex
-	active   map[string]struct{}
+	active   map[string]context.CancelFunc
 	interval time.Duration
 }
 
-func New(sm SessionManager, sts TokenValidator, pod model.ProxyPod, interval time.Duration) *Service {
-	return &Service{sm: sm, sts: sts, pod: pod, active: make(map[string]struct{}), interval: interval}
+func New(sm SessionManager, sts TokenValidator, executor connection.Executor, pod model.ProxyPod, interval time.Duration) *Service {
+	return &Service{
+		sm:       sm,
+		sts:      sts,
+		executor: executor,
+		pod:      pod,
+		active:   make(map[string]context.CancelFunc),
+		interval: interval,
+	}
 }

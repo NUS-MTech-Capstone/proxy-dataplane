@@ -1,10 +1,14 @@
 package httpapi
 
 import (
+	"context"
 	"io"
 	"log"
 	"net/http"
 	"strings"
+
+	"github.com/NUS-MTech-Capstone/access-proxy/internal/connection"
+	targetsession "github.com/NUS-MTech-Capstone/access-proxy/internal/session"
 )
 
 func (s *Server) ws(w http.ResponseWriter, r *http.Request) {
@@ -26,20 +30,32 @@ func (s *Server) ws(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnauthorized, "session token is required")
 		return
 	}
-	if err := s.svc.ValidateSession(r.Context(), sessionID, token, user.Subject); err != nil {
+	session, err := s.svc.AuthorizeSession(r.Context(), sessionID, token, user.Subject)
+	if err != nil {
 		writeError(w, http.StatusForbidden, err.Error())
+		return
+	}
+	if err := s.svc.StartSession(r.Context(), sessionID); err != nil {
+		writeError(w, http.StatusConflict, err.Error())
 		return
 	}
 	conn, err := upgrade(w, r)
 	if err != nil {
+		s.svc.AbortSession(sessionID)
 		log.Printf("websocket upgrade failed sessionId=%s error=%v", sessionID, err)
 		return
 	}
 	defer conn.Close()
-	s.svc.StartSession(r.Context(), sessionID)
 	defer s.svc.CloseSession(r.Context(), sessionID)
 	log.Printf("SessionStarted sessionId=%s userId=%s", sessionID, user.Subject)
-	_ = conn.WriteText([]byte("connected to DenDenMushi mock session\r\n"))
+
+	runtime := targetsession.New(func(ctx context.Context, command string) (connection.Result, error) {
+		return s.svc.ExecuteCommand(ctx, session, token, command)
+	})
+	if err := conn.WriteText(runtime.Welcome(session.HostID)); err != nil {
+		log.Printf("websocket welcome failed sessionId=%s error=%v", sessionID, err)
+		return
+	}
 	for {
 		msg, err := conn.ReadMessage()
 		if err != nil {
@@ -48,7 +64,14 @@ func (s *Server) ws(w http.ResponseWriter, r *http.Request) {
 			}
 			return
 		}
-		if err := conn.WriteText(append([]byte("echo: "), msg...)); err != nil {
+		output, executeErr := runtime.HandleInput(r.Context(), msg)
+		if executeErr != nil {
+			output = append(output, []byte("command failed\r\n$ ")...)
+		}
+		if len(output) == 0 {
+			continue
+		}
+		if err := conn.WriteText(output); err != nil {
 			log.Printf("websocket write failed sessionId=%s error=%v", sessionID, err)
 			return
 		}

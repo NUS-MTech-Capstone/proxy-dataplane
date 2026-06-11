@@ -2,6 +2,8 @@ package model
 
 import "time"
 
+const SessionStatusActive = "ACTIVE"
+
 type Session struct {
 	SessionID       string    `json:"sessionId"`
 	UserID          string    `json:"userId"`

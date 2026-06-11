@@ -12,6 +12,8 @@ type Config struct {
 	Port              string
 	SessionManagerURL string
 	STSURL            string
+	AgentURLTemplate  string
+	CommandTimeout    time.Duration
 	PublicURL         string
 	PodID             string
 	PodIP             string
@@ -29,6 +31,8 @@ func Load() Config {
 		Port:              env("PORT", "8083"),
 		SessionManagerURL: env("SESSION_MANAGER_URL", "http://localhost:8081"),
 		STSURL:            env("STS_URL", "http://localhost:8082"),
+		AgentURLTemplate:  env("DDM_AGENT_URL_TEMPLATE", "http://localhost:8084"),
+		CommandTimeout:    durationEnv("COMMAND_TIMEOUT", 30*time.Second),
 		PublicURL:         env("PROXY_DATAPLANE_PUBLIC_URL", "ws://localhost:8083"),
 		PodID:             env("POD_ID", hostname()),
 		PodIP:             env("POD_IP", "127.0.0.1"),
@@ -36,6 +40,14 @@ func Load() Config {
 		MaxSessions:       maxSessions,
 		HeartbeatInterval: 5 * time.Second,
 	}
+}
+
+func durationEnv(key string, fallback time.Duration) time.Duration {
+	value, err := time.ParseDuration(env(key, fallback.String()))
+	if err != nil || value <= 0 {
+		return fallback
+	}
+	return value
 }
 
 func env(key, fallback string) string {

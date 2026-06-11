@@ -33,6 +33,11 @@ GET /healthz
 GET /sessions/{sessionId}/ws
 ```
 
+The WebSocket endpoint expects AWS ALB Cognito authentication. The ALB validates
+the Cognito token and forwards the claims JWT in `x-amzn-oidc-data`. The
+dataplane parses the `sub` claim and requires it to match the session's
+`userId`. `GET /healthz` remains unauthenticated.
+
 The WebSocket endpoint accepts the session token either as:
 
 ```text
@@ -40,3 +45,8 @@ Authorization: Bearer <token>
 ```
 
 or as `?token=<token>` for simple local testing.
+
+For direct local testing without an ALB, also provide a simulated
+`x-amzn-oidc-data` header containing a three-part JWT with a matching `sub`
+claim. The dataplane intentionally does not verify this JWT because production
+traffic must only reach it through the authenticated ALB.

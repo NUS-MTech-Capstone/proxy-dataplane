@@ -1,4 +1,4 @@
-package client
+package sts
 
 import (
 	"bytes"
@@ -6,24 +6,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"time"
 )
-
-type STS struct {
-	baseURL string
-	client  *http.Client
-}
 
 type validateResponse struct {
 	Allowed bool   `json:"allowed"`
 	Reason  string `json:"reason,omitempty"`
 }
 
-func NewSTS(baseURL string) *STS {
-	return &STS{baseURL: baseURL, client: &http.Client{Timeout: 5 * time.Second}}
-}
-
-func (c *STS) ValidateToken(ctx context.Context, sessionID, token string) error {
+func (c *Client) ValidateToken(ctx context.Context, sessionID, token string) error {
 	body, err := json.Marshal(map[string]string{"sessionId": sessionID, "token": token})
 	if err != nil {
 		return err

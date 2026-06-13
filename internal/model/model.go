@@ -9,6 +9,7 @@ type Session struct {
 	UserID          string    `json:"userId"`
 	HostID          string    `json:"hostId"`
 	CRID            string    `json:"crId"`
+	ConnectionType  string    `json:"connectionType"`
 	OwnerPodID      string    `json:"ownerPodId"`
 	OwnerInstanceID string    `json:"ownerInstanceId"`
 	WebsocketURL    string    `json:"websocketUrl"`
@@ -16,6 +17,20 @@ type Session struct {
 	CreatedAt       time.Time `json:"createdAt"`
 	LastHeartbeatAt time.Time `json:"lastHeartbeatAt"`
 	LeaseExpiresAt  time.Time `json:"leaseExpiresAt"`
+}
+
+type SessionClaims struct {
+	SessionID          string `json:"sessionId"`
+	UserID             string `json:"userId"`
+	HostID             string `json:"hostId"`
+	CRID               string `json:"crId"`
+	ConnectionType     string `json:"connectionType"`
+	Action             string `json:"action"`
+	Mode               string `json:"mode"`
+	Address            string `json:"address,omitempty"`
+	Username           string `json:"username,omitempty"`
+	CredentialSecretID string `json:"credentialSecretId,omitempty"`
+	HostPublicKey      string `json:"hostPublicKey,omitempty"`
 }
 
 type ProxyPod struct {

@@ -1,8 +1,7 @@
 # Proxy Dataplane
 
-Owns the live WebSocket connection for an assigned session. The MVP runtime is a
-line-oriented terminal that executes commands through the DDM Agent installed
-on the target server.
+Owns persistent SSH PTY sessions and attaches owner or observer WebSockets to
+the assigned session.
 
 ## Run
 
@@ -12,8 +11,10 @@ Start Session Manager and STS first, then:
 PORT=8083 \
 SESSION_MANAGER_URL=http://localhost:8081 \
 STS_URL=http://localhost:8082 \
-DDM_AGENT_URL_TEMPLATE=http://localhost:8084 \
-COMMAND_TIMEOUT=30s \
+SSH_KEY_PROVIDER=env \
+SSH_PRIVATE_KEY_PEM="$(cat ~/.ssh/id_ed25519)" \
+SSH_CONNECT_TIMEOUT=10s \
+SSH_REJOIN_GRACE=5m \
 PROXY_DATAPLANE_PUBLIC_URL=ws://localhost:8083 \
 MAX_SESSIONS=50 \
 go run ./cmd/server
@@ -22,15 +23,16 @@ go run ./cmd/server
 On startup the process registers itself with Session Manager and sends pod
 heartbeats every five seconds.
 
-`DDM_AGENT_URL_TEMPLATE` may contain `{hostId}` when session host IDs are
-DNS-resolvable:
+For deployment, use AWS Secrets Manager:
 
 ```bash
-DDM_AGENT_URL_TEMPLATE=http://{hostId}:8084
+SSH_KEY_PROVIDER=aws
+AWS_REGION=ap-southeast-1
 ```
 
-If `hostId` is an opaque inventory ID, add a trusted inventory resolver rather
-than accepting a target address from the WebSocket client.
+The secret named by the signed `credentialSecretId` claim must contain the raw,
+unencrypted PEM/OpenSSH private key. Keys are parsed in memory and are never
+written to disk.
 
 ## Endpoints
 
@@ -39,13 +41,13 @@ GET /healthz
 GET /sessions/{sessionId}/ws
 ```
 
-Owner connections use the URL as returned for start/rejoin. Observer connections
-use `?mode=observe` and an observer session token. Observer connections are
-read-only and receive terminal output produced after they connect.
+The signed STS token determines whether the connection starts, rejoins, or
+observes a session. URL query parameters do not select authorization mode.
+Observers are read-only.
 
-When an owner WebSocket disconnects, the dataplane stops heartbeating but leaves
-the session active until its Session Manager lease expires, allowing a short
-rejoin window.
+The SSH shell and Session Manager heartbeat remain active for
+`SSH_REJOIN_GRACE` after owner disconnect, allowing rejoin without losing shell
+state. A bounded `SSH_SCROLLBACK_BYTES` buffer defaults to 256 KiB.
 
 The WebSocket endpoint expects AWS ALB Cognito authentication. The ALB validates
 the Cognito token and forwards the claims JWT in `x-amzn-oidc-data`. The
@@ -60,41 +62,29 @@ Authorization: Bearer <token>
 
 or as `?token=<token>` for simple local testing.
 
-The session token must belong to the authenticated Cognito user and contain
-`mode: "owner"`. Observer tokens cannot open a writable terminal.
+The session token must belong to the authenticated Cognito user. Its signed
+claims must match Session Manager metadata and include the target SSH address,
+username, credential secret ID, and pinned host public key.
 
 For direct local testing without an ALB, also provide a simulated
 `x-amzn-oidc-data` header containing a three-part JWT with a matching `sub`
 claim. The dataplane intentionally does not verify this JWT because production
 traffic must only reach it through the authenticated ALB.
 
-## Command Runtime
+## Terminal Protocol
 
-The WebSocket accepts terminal keystrokes, buffers one line, and calls:
+WebSocket messages are binary. The first byte is the packet type:
 
-```http
-POST {DDM_AGENT_URL}/execute
-Authorization: Bearer <short-lived-session-token>
-Content-Type: application/json
-X-DDM-Session-ID: sess-123
-X-DDM-User-ID: user-123
-X-DDM-Host-ID: host-123
-X-DDM-CR-ID: cr-123
-
-{"command":"whoami"}
+```text
+0x00 input
+0x01 output
+0x02 error
+0x07 session event
+0x10 resize: uint16 columns + uint16 rows, big endian
+0x12 detach WebSocket
+0x18 terminate session
 ```
 
-The DDM Agent validates the forwarded session token directly with STS before
-executing the command. Use TLS and private network reachability between the
-dataplane, agent, and STS outside local development.
-
-Only one writer may be connected to a session. The dataplane heartbeats the
-session while connected and closes the Session Manager record on disconnect.
-If Session Manager rejects a heartbeat because ownership or session state is no
-longer valid, the dataplane terminates the live WebSocket.
-
-This MVP command endpoint is not a persistent PTY: shell state such as `cd`,
-environment changes, full-screen programs, and terminal resize are not
-preserved. The connector boundary is intended to support a streaming DDM Agent
-PTY transport later. Direct SSH is not enabled until target inventory and
-credential-source contracts are defined.
+The dataplane uses `golang.org/x/crypto/ssh`, requests an `xterm-256color` PTY,
+and starts a persistent shell. Only one owner may write. Rejoin attaches to the
+same shell, while observers receive scrollback and future output.

@@ -18,28 +18,61 @@ type SessionManager interface {
 }
 
 type TokenValidator interface {
-	ValidateToken(context.Context, string, string, string, string) error
+	ValidateToken(context.Context, string, string, string) (model.SessionClaims, error)
 }
 
 type Service struct {
-	sm        SessionManager
-	sts       TokenValidator
-	executor  connection.Executor
-	pod       model.ProxyPod
-	mu        sync.RWMutex
-	active    map[string]context.CancelFunc
-	observers map[string]map[chan []byte]struct{}
-	interval  time.Duration
+	sm              SessionManager
+	sts             TokenValidator
+	connector       connection.ShellConnector
+	pod             model.ProxyPod
+	mu              sync.RWMutex
+	runtimes        map[string]*Runtime
+	rootCtx         context.Context
+	interval        time.Duration
+	rejoinGrace     time.Duration
+	scrollbackLimit int
 }
 
-func New(sm SessionManager, sts TokenValidator, executor connection.Executor, pod model.ProxyPod, interval time.Duration) *Service {
-	return &Service{
-		sm:        sm,
-		sts:       sts,
-		executor:  executor,
-		pod:       pod,
-		active:    make(map[string]context.CancelFunc),
-		observers: make(map[string]map[chan []byte]struct{}),
-		interval:  interval,
+func New(
+	sm SessionManager,
+	sts TokenValidator,
+	connector connection.ShellConnector,
+	pod model.ProxyPod,
+	interval time.Duration,
+	rejoinGrace time.Duration,
+	scrollbackLimit int,
+) *Service {
+	if rejoinGrace <= 0 {
+		rejoinGrace = 5 * time.Minute
 	}
+	if scrollbackLimit <= 0 {
+		scrollbackLimit = 256 * 1024
+	}
+	return &Service{
+		sm:              sm,
+		sts:             sts,
+		connector:       connector,
+		pod:             pod,
+		runtimes:        make(map[string]*Runtime),
+		rootCtx:         context.Background(),
+		interval:        interval,
+		rejoinGrace:     rejoinGrace,
+		scrollbackLimit: scrollbackLimit,
+	}
+}
+
+func (s *Service) runtime(sessionID string) (*Runtime, bool) {
+	s.mu.RLock()
+	runtime, ok := s.runtimes[sessionID]
+	s.mu.RUnlock()
+	return runtime, ok
+}
+
+func (s *Service) removeRuntime(sessionID string, runtime *Runtime) {
+	s.mu.Lock()
+	if s.runtimes[sessionID] == runtime {
+		delete(s.runtimes, sessionID)
+	}
+	s.mu.Unlock()
 }

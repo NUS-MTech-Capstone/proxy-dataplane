@@ -1,142 +1,105 @@
 package httpapi
 
 import (
-	"bufio"
-	"crypto/sha1"
-	"encoding/base64"
-	"encoding/binary"
-	"errors"
-	"fmt"
 	"io"
-	"net"
+	"log"
 	"net/http"
+	"strings"
+
+	"github.com/NUS-MTech-Capstone/access-proxy/internal/protocol"
 )
 
-const websocketGUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
-const maxWebsocketPayload = 1 << 20
-
-type wsConn struct {
-	conn net.Conn
-	rw   *bufio.ReadWriter
-}
-
-func upgrade(w http.ResponseWriter, r *http.Request) (*wsConn, error) {
-	key := r.Header.Get("Sec-WebSocket-Key")
-	if key == "" {
-		return nil, errors.New("missing Sec-WebSocket-Key")
-	}
-	hijacker, ok := w.(http.Hijacker)
+func (s *Server) ws(w http.ResponseWriter, r *http.Request) {
+	sessionID, ok := parseSessionID(r.URL.Path)
 	if !ok {
-		return nil, errors.New("hijacking unsupported")
+		http.NotFound(w, r)
+		return
 	}
-	conn, rw, err := hijacker.Hijack()
+	user, ok := cognitoUserFromContext(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "missing Cognito identity")
+		return
+	}
+	token := bearerToken(r.Header.Get("Authorization"))
+	if token == "" {
+		token = r.URL.Query().Get("token")
+	}
+	if token == "" {
+		writeError(w, http.StatusUnauthorized, "session token is required")
+		return
+	}
+	attachment, err := s.svc.Attach(r.Context(), sessionID, token, user.Subject)
 	if err != nil {
-		return nil, err
+		writeError(w, http.StatusConflict, err.Error())
+		return
 	}
-	hash := sha1.Sum([]byte(key + websocketGUID))
-	accept := base64.StdEncoding.EncodeToString(hash[:])
-	fmt.Fprintf(rw, "HTTP/1.1 101 Switching Protocols\r\n")
-	fmt.Fprintf(rw, "Upgrade: websocket\r\n")
-	fmt.Fprintf(rw, "Connection: Upgrade\r\n")
-	fmt.Fprintf(rw, "Sec-WebSocket-Accept: %s\r\n\r\n", accept)
-	if err := rw.Flush(); err != nil {
-		conn.Close()
-		return nil, err
+	conn, err := upgrade(w, r)
+	if err != nil {
+		attachment.Close()
+		log.Printf("websocket upgrade failed sessionId=%s error=%v", sessionID, err)
+		return
 	}
-	return &wsConn{conn: conn, rw: rw}, nil
-}
+	defer conn.Close()
+	defer attachment.Close()
+	log.Printf("SessionAttached sessionId=%s userId=%s", sessionID, user.Subject)
 
-func (c *wsConn) Close() error {
-	return c.conn.Close()
-}
+	localOutput := make(chan protocol.Packet, 8)
+	readDone := make(chan error, 1)
+	go func() {
+		for {
+			data, err := conn.ReadBinary()
+			if err != nil {
+				readDone <- err
+				return
+			}
+			packet, err := protocol.Parse(data)
+			if err == nil {
+				err = attachment.Handle(packet)
+			}
+			if err != nil {
+				select {
+				case localOutput <- protocol.Packet{Type: protocol.Error, Data: []byte(err.Error())}:
+				default:
+				}
+			}
+		}
+	}()
 
-func (c *wsConn) ReadMessage() ([]byte, error) {
 	for {
-		header := make([]byte, 2)
-		if _, err := io.ReadFull(c.rw, header); err != nil {
-			return nil, err
-		}
-		if header[0]&0x80 == 0 {
-			return nil, errors.New("fragmented websocket messages are unsupported")
-		}
-		if header[0]&0x70 != 0 {
-			return nil, errors.New("websocket extensions are unsupported")
-		}
-		opcode := header[0] & 0x0f
-		masked := header[1]&0x80 != 0
-		if !masked {
-			return nil, errors.New("client websocket frames must be masked")
-		}
-		length := uint64(header[1] & 0x7f)
-		switch length {
-		case 126:
-			var b [2]byte
-			if _, err := io.ReadFull(c.rw, b[:]); err != nil {
-				return nil, err
+		select {
+		case <-r.Context().Done():
+			return
+		case <-attachment.Done():
+			return
+		case err := <-readDone:
+			if err != nil && err != io.EOF {
+				log.Printf("websocket read failed sessionId=%s error=%v", sessionID, err)
 			}
-			length = uint64(binary.BigEndian.Uint16(b[:]))
-		case 127:
-			var b [8]byte
-			if _, err := io.ReadFull(c.rw, b[:]); err != nil {
-				return nil, err
+			return
+		case packet := <-localOutput:
+			if err := conn.WriteBinary(protocol.Encode(packet)); err != nil {
+				return
 			}
-			length = binary.BigEndian.Uint64(b[:])
-		}
-		if length > maxWebsocketPayload {
-			return nil, fmt.Errorf("websocket payload exceeds %d bytes", maxWebsocketPayload)
-		}
-		if opcode >= 0x8 && length > 125 {
-			return nil, errors.New("websocket control payload exceeds 125 bytes")
-		}
-		var mask [4]byte
-		if _, err := io.ReadFull(c.rw, mask[:]); err != nil {
-			return nil, err
-		}
-		payload := make([]byte, length)
-		if _, err := io.ReadFull(c.rw, payload); err != nil {
-			return nil, err
-		}
-		for i := range payload {
-			payload[i] ^= mask[i%4]
-		}
-		switch opcode {
-		case 0x1, 0x2:
-			return payload, nil
-		case 0x8:
-			return nil, io.EOF
-		case 0x9:
-			if err := c.writeFrame(0xA, payload); err != nil {
-				return nil, err
+		case packet := <-attachment.Output():
+			if err := conn.WriteBinary(protocol.Encode(packet)); err != nil {
+				return
 			}
-		case 0xA:
-			continue
-		default:
-			return nil, fmt.Errorf("unsupported websocket opcode 0x%x", opcode)
 		}
 	}
 }
 
-func (c *wsConn) WriteText(payload []byte) error {
-	return c.writeFrame(0x1, payload)
+func parseSessionID(path string) (string, bool) {
+	parts := strings.Split(strings.Trim(path, "/"), "/")
+	if len(parts) != 3 || parts[0] != "sessions" || parts[2] != "ws" {
+		return "", false
+	}
+	return parts[1], true
 }
 
-func (c *wsConn) writeFrame(opcode byte, payload []byte) error {
-	header := []byte{0x80 | opcode}
-	length := len(payload)
-	switch {
-	case length < 126:
-		header = append(header, byte(length))
-	case length <= 65535:
-		header = append(header, 126, byte(length>>8), byte(length))
-	default:
-		header = append(header, 127)
-		var encoded [8]byte
-		binary.BigEndian.PutUint64(encoded[:], uint64(length))
-		header = append(header, encoded[:]...)
+func bearerToken(header string) string {
+	const prefix = "Bearer "
+	if strings.HasPrefix(header, prefix) {
+		return strings.TrimSpace(strings.TrimPrefix(header, prefix))
 	}
-	if _, err := c.conn.Write(header); err != nil {
-		return err
-	}
-	_, err := c.conn.Write(payload)
-	return err
+	return ""
 }

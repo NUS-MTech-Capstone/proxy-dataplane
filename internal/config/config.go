@@ -12,8 +12,12 @@ type Config struct {
 	Port              string
 	SessionManagerURL string
 	STSURL            string
-	AgentURLTemplate  string
-	CommandTimeout    time.Duration
+	SSHKeyProvider    string
+	SSHPrivateKeyPEM  string
+	AWSRegion         string
+	SSHConnectTimeout time.Duration
+	SSHRejoinGrace    time.Duration
+	ScrollbackBytes   int
 	PublicURL         string
 	PodID             string
 	PodIP             string
@@ -27,12 +31,20 @@ func Load() Config {
 	if err != nil {
 		maxSessions = 50
 	}
+	scrollbackBytes, err := strconv.Atoi(env("SSH_SCROLLBACK_BYTES", "262144"))
+	if err != nil || scrollbackBytes <= 0 {
+		scrollbackBytes = 262144
+	}
 	return Config{
 		Port:              env("PORT", "8083"),
 		SessionManagerURL: env("SESSION_MANAGER_URL", "http://localhost:8081"),
 		STSURL:            env("STS_URL", "http://localhost:8082"),
-		AgentURLTemplate:  env("DDM_AGENT_URL_TEMPLATE", "http://localhost:8084"),
-		CommandTimeout:    durationEnv("COMMAND_TIMEOUT", 30*time.Second),
+		SSHKeyProvider:    env("SSH_KEY_PROVIDER", "env"),
+		SSHPrivateKeyPEM:  os.Getenv("SSH_PRIVATE_KEY_PEM"),
+		AWSRegion:         os.Getenv("AWS_REGION"),
+		SSHConnectTimeout: durationEnv("SSH_CONNECT_TIMEOUT", 10*time.Second),
+		SSHRejoinGrace:    durationEnv("SSH_REJOIN_GRACE", 5*time.Minute),
+		ScrollbackBytes:   scrollbackBytes,
 		PublicURL:         env("PROXY_DATAPLANE_PUBLIC_URL", "ws://localhost:8083"),
 		PodID:             env("POD_ID", hostname()),
 		PodIP:             env("POD_IP", "127.0.0.1"),

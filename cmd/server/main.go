@@ -5,6 +5,7 @@ import (
 	"log"
 	"net/http"
 	"os/signal"
+	"strings"
 	"syscall"
 
 	"github.com/NUS-MTech-Capstone/access-proxy/internal/config"
@@ -28,13 +29,27 @@ func main() {
 		Status:       "READY",
 		MaxSessions:  cfg.MaxSessions,
 	}
-	executor := connect.NewAgent(cfg.AgentURLTemplate, cfg.CommandTimeout)
+	var credentials connect.CredentialProvider
+	switch strings.ToLower(cfg.SSHKeyProvider) {
+	case "", "env":
+		credentials = connect.EnvCredentials{PrivateKeyPEM: cfg.SSHPrivateKeyPEM}
+	case "aws":
+		var err error
+		credentials, err = connect.NewSecretsManagerCredentials(ctx, cfg.AWSRegion)
+		if err != nil {
+			log.Fatalf("initialize AWS Secrets Manager credentials failed: %v", err)
+		}
+	default:
+		log.Fatalf("unsupported SSH_KEY_PROVIDER %q", cfg.SSHKeyProvider)
+	}
 	svc := service.New(
 		session_manager.NewSessionManager(cfg.SessionManagerURL),
 		sts.NewSTS(cfg.STSURL),
-		executor,
+		connect.NewSSH(credentials, cfg.SSHConnectTimeout),
 		pod,
 		cfg.HeartbeatInterval,
+		cfg.SSHRejoinGrace,
+		cfg.ScrollbackBytes,
 	)
 	if err := svc.Start(ctx); err != nil {
 		log.Fatalf("register proxy dataplane failed: %v", err)

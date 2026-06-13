@@ -1,25 +1,21 @@
 package connection
 
-import "context"
+import (
+	"context"
+	"io"
 
-// Result is the transport-independent result of one command execution.
-type Result struct {
-	Stdout   string `json:"stdout"`
-	Stderr   string `json:"stderr"`
-	ExitCode int    `json:"exitCode,omitempty"`
+	"github.com/NUS-MTech-Capstone/access-proxy/internal/model"
+)
+
+type Shell interface {
+	io.Writer
+	Stdout() io.Reader
+	Stderr() io.Reader
+	Resize(cols, rows uint16) error
+	Wait() error
+	Close() error
 }
 
-type Command struct {
-	SessionID string
-	UserID    string
-	HostID    string
-	CRID      string
-	Token     string
-	Value     string
-}
-
-// Executor connects the dataplane to a target and executes commands there.
-// The host ID comes from the Session Manager record, not from the WebSocket.
-type Executor interface {
-	Execute(ctx context.Context, command Command) (Result, error)
+type ShellConnector interface {
+	Open(context.Context, model.SessionClaims) (Shell, error)
 }

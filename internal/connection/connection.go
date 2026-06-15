@@ -19,3 +19,7 @@ type Shell interface {
 type ShellConnector interface {
 	Open(context.Context, model.SessionClaims) (Shell, error)
 }
+
+type CommandExecutor interface {
+	Execute(context.Context, model.AutomationClaims, string, int) (model.OperationResult, error)
+}

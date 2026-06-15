@@ -201,3 +201,13 @@ func TestEnvCredentialsRequiresPrivateKey(t *testing.T) {
 		t.Fatal("PrivateKey() accepted empty SSH_PRIVATE_KEY_PEM")
 	}
 }
+
+func TestLimitedBufferBoundsOutput(t *testing.T) {
+	buffer := newLimitedBuffer(4)
+	if n, err := buffer.Write([]byte("123456")); err != nil || n != 6 {
+		t.Fatalf("Write() = %d, %v", n, err)
+	}
+	if output := buffer.String(); !strings.HasPrefix(output, "1234") || !strings.Contains(output, "truncated") {
+		t.Fatalf("output = %q", output)
+	}
+}

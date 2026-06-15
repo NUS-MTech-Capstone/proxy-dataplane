@@ -7,4 +7,5 @@ func (s *Server) routes() {
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 	})
 	s.mux.Handle("GET /sessions/", cognitoMiddleware(http.HandlerFunc(s.ws)))
+	s.mux.HandleFunc("POST /automation/runs/", s.operation)
 }

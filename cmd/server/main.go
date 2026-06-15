@@ -22,12 +22,13 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 	pod := model.ProxyPod{
-		PodID:        cfg.PodID,
-		InstanceID:   cfg.InstanceID,
-		PodIP:        cfg.PodIP,
-		WebsocketURL: cfg.PublicURL,
-		Status:       "READY",
-		MaxSessions:  cfg.MaxSessions,
+		PodID:         cfg.PodID,
+		InstanceID:    cfg.InstanceID,
+		PodIP:         cfg.PodIP,
+		WebsocketURL:  cfg.PublicURL,
+		OperationsURL: cfg.OperationsURL,
+		Status:        "READY",
+		MaxSessions:   cfg.MaxSessions,
 	}
 	var credentials connect.CredentialProvider
 	switch strings.ToLower(cfg.SSHKeyProvider) {
@@ -50,6 +51,8 @@ func main() {
 		cfg.HeartbeatInterval,
 		cfg.SSHRejoinGrace,
 		cfg.ScrollbackBytes,
+		cfg.AutomationTimeout,
+		cfg.AutomationOutputBytes,
 	)
 	if err := svc.Start(ctx); err != nil {
 		log.Fatalf("register proxy dataplane failed: %v", err)

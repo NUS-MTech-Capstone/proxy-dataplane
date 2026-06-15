@@ -21,17 +21,30 @@ type TokenValidator interface {
 	ValidateToken(context.Context, string, string, string) (model.SessionClaims, error)
 }
 
+type AutomationSessionManager interface {
+	GetAutomationRun(context.Context, string) (model.AutomationRun, error)
+}
+
+type AutomationTokenValidator interface {
+	ValidateAutomationToken(context.Context, string, string) (model.AutomationClaims, error)
+}
+
 type Service struct {
-	sm              SessionManager
-	sts             TokenValidator
-	connector       connection.ShellConnector
-	pod             model.ProxyPod
-	mu              sync.RWMutex
-	runtimes        map[string]*Runtime
-	rootCtx         context.Context
-	interval        time.Duration
-	rejoinGrace     time.Duration
-	scrollbackLimit int
+	sm                    SessionManager
+	sts                   TokenValidator
+	automationSM          AutomationSessionManager
+	automationSTS         AutomationTokenValidator
+	connector             connection.ShellConnector
+	executor              connection.CommandExecutor
+	pod                   model.ProxyPod
+	mu                    sync.RWMutex
+	runtimes              map[string]*Runtime
+	rootCtx               context.Context
+	interval              time.Duration
+	rejoinGrace           time.Duration
+	scrollbackLimit       int
+	automationTimeout     time.Duration
+	automationOutputBytes int
 }
 
 func New(
@@ -42,6 +55,7 @@ func New(
 	interval time.Duration,
 	rejoinGrace time.Duration,
 	scrollbackLimit int,
+	automationOptions ...any,
 ) *Service {
 	if rejoinGrace <= 0 {
 		rejoinGrace = 5 * time.Minute
@@ -49,16 +63,43 @@ func New(
 	if scrollbackLimit <= 0 {
 		scrollbackLimit = 256 * 1024
 	}
+	var executor connection.CommandExecutor
+	if candidate, ok := connector.(connection.CommandExecutor); ok {
+		executor = candidate
+	}
+	automationSM, _ := sm.(AutomationSessionManager)
+	automationSTS, _ := sts.(AutomationTokenValidator)
+	automationTimeout := 30 * time.Second
+	automationOutputBytes := 256 * 1024
+	for _, option := range automationOptions {
+		switch value := option.(type) {
+		case connection.CommandExecutor:
+			executor = value
+		case time.Duration:
+			if value > 0 {
+				automationTimeout = value
+			}
+		case int:
+			if value > 0 {
+				automationOutputBytes = value
+			}
+		}
+	}
 	return &Service{
-		sm:              sm,
-		sts:             sts,
-		connector:       connector,
-		pod:             pod,
-		runtimes:        make(map[string]*Runtime),
-		rootCtx:         context.Background(),
-		interval:        interval,
-		rejoinGrace:     rejoinGrace,
-		scrollbackLimit: scrollbackLimit,
+		sm:                    sm,
+		sts:                   sts,
+		automationSM:          automationSM,
+		automationSTS:         automationSTS,
+		connector:             connector,
+		executor:              executor,
+		pod:                   pod,
+		runtimes:              make(map[string]*Runtime),
+		rootCtx:               context.Background(),
+		interval:              interval,
+		rejoinGrace:           rejoinGrace,
+		scrollbackLimit:       scrollbackLimit,
+		automationTimeout:     automationTimeout,
+		automationOutputBytes: automationOutputBytes,
 	}
 }
 

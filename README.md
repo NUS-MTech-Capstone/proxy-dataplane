@@ -39,7 +39,20 @@ written to disk.
 ```http
 GET /healthz
 GET /sessions/{sessionId}/ws
+POST /automation/runs/{runId}/operations
 ```
+
+The automation endpoint is reachable through the assigned pod's internal
+`operationsUrl`. It validates a dedicated STS capability plus Session Manager
+run ownership, then maps an operation ID to:
+
+```text
+sudo -- /usr/local/sbin/ddm-ops <operationId>
+```
+
+It never accepts command text. Read-only operations require diagnose or verify
+capabilities. `restart_service` requires a remediation capability and an exact
+approved plan-hash match.
 
 The signed STS token determines whether the connection starts, rejoins, or
 observes a session. URL query parameters do not select authorization mode.

@@ -38,6 +38,23 @@ func (c *Client) CloseSession(ctx context.Context, sessionID, podID, instanceID 
 	}, nil)
 }
 
+func (c *Client) GetAutomationRun(ctx context.Context, runID string) (model.AutomationRun, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+"/automation/runs/"+runID, nil)
+	if err != nil {
+		return model.AutomationRun{}, err
+	}
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return model.AutomationRun{}, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return model.AutomationRun{}, fmt.Errorf("session-manager returned status %d", resp.StatusCode)
+	}
+	var run model.AutomationRun
+	return run, json.NewDecoder(resp.Body).Decode(&run)
+}
+
 func (c *Client) post(ctx context.Context, path string, req any, out any) error {
 	body, err := json.Marshal(req)
 	if err != nil {

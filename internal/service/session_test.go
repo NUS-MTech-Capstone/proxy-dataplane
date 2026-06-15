@@ -16,6 +16,7 @@ import (
 type fakeSessionManager struct {
 	mu                sync.Mutex
 	session           model.Session
+	automationRun     model.AutomationRun
 	registered        []model.ProxyPod
 	podHeartbeats     []model.ProxyPod
 	sessionHeartbeats []string
@@ -50,9 +51,21 @@ func (f *fakeSessionManager) CloseSession(_ context.Context, sessionID, _, _ str
 	f.closedSessions = append(f.closedSessions, sessionID)
 	return nil
 }
+func (f *fakeSessionManager) GetAutomationRun(context.Context, string) (model.AutomationRun, error) {
+	return f.automationRun, nil
+}
 
 type fakeTokenValidator struct {
-	claims map[string]model.SessionClaims
+	claims           map[string]model.SessionClaims
+	automationClaims map[string]model.AutomationClaims
+}
+
+func (f fakeTokenValidator) ValidateAutomationToken(_ context.Context, _, token string) (model.AutomationClaims, error) {
+	claims, ok := f.automationClaims[token]
+	if !ok {
+		return model.AutomationClaims{}, errors.New("invalid automation token")
+	}
+	return claims, nil
 }
 
 func (f fakeTokenValidator) ValidateToken(_ context.Context, _, _, token string) (model.SessionClaims, error) {
@@ -67,6 +80,14 @@ type fakeConnector struct {
 	mu        sync.Mutex
 	openCount int
 	shell     *fakeShell
+	commands  []string
+}
+
+func (f *fakeConnector) Execute(_ context.Context, _ model.AutomationClaims, command string, _ int) (model.OperationResult, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.commands = append(f.commands, command)
+	return model.OperationResult{Stdout: "ok"}, nil
 }
 
 func (f *fakeConnector) Open(context.Context, model.SessionClaims) (connection.Shell, error) {
@@ -77,6 +98,93 @@ func (f *fakeConnector) Open(context.Context, model.SessionClaims) (connection.S
 		f.shell = newFakeShell()
 	}
 	return f.shell, nil
+}
+
+func TestExecuteOperationRequiresAssignedInstanceAndPlanHash(t *testing.T) {
+	run := model.AutomationRun{
+		RunID: "run-1", IncidentID: "inc-1", HostID: "host-1",
+		OwnerPodID: "pod-1", OwnerInstanceID: "instance-1",
+		Status: "ACTIVE", ExpiresAt: time.Now().Add(time.Hour),
+	}
+	sm := &fakeSessionManager{automationRun: run}
+	validator := fakeTokenValidator{automationClaims: map[string]model.AutomationClaims{
+		"token": {
+			RunID: "run-1", IncidentID: "inc-1", HostID: "host-1", Phase: "remediate",
+			AllowedOperations: []string{"restart_service"}, PlanHash: "hash",
+			OwnerPodID: "pod-1", OwnerInstanceID: "instance-1",
+			HelperPath: "/usr/local/sbin/ddm-ops",
+		},
+		"wrong-host": {
+			RunID: "run-1", IncidentID: "inc-1", HostID: "host-2", Phase: "remediate",
+			AllowedOperations: []string{"restart_service"}, PlanHash: "hash",
+			OwnerPodID: "pod-1", OwnerInstanceID: "instance-1",
+			HelperPath: "/usr/local/sbin/ddm-ops",
+		},
+		"wrong-phase": {
+			RunID: "run-1", IncidentID: "inc-1", HostID: "host-1", Phase: "diagnose",
+			AllowedOperations: []string{"restart_service"}, PlanHash: "hash",
+			OwnerPodID: "pod-1", OwnerInstanceID: "instance-1",
+			HelperPath: "/usr/local/sbin/ddm-ops",
+		},
+		"unapproved": {
+			RunID: "run-1", IncidentID: "inc-1", HostID: "host-1", Phase: "remediate",
+			AllowedOperations: []string{"health_check"}, PlanHash: "hash",
+			OwnerPodID: "pod-1", OwnerInstanceID: "instance-1",
+			HelperPath: "/usr/local/sbin/ddm-ops",
+		},
+	}}
+	connector := &fakeConnector{}
+	svc := New(
+		sm, validator, connector,
+		model.ProxyPod{PodID: "pod-1", InstanceID: "instance-1"},
+		time.Second, time.Minute, 1024, time.Second, 1024,
+	)
+	result, err := svc.ExecuteOperation(t.Context(), "run-1", "token", model.OperationRequest{
+		OperationID: "restart_service", PlanHash: "hash",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.OperationID != "restart_service" {
+		t.Fatalf("result = %#v", result)
+	}
+	connector.mu.Lock()
+	command := connector.commands[0]
+	connector.mu.Unlock()
+	if command != "sudo -- /usr/local/sbin/ddm-ops restart_service" {
+		t.Fatalf("command = %q", command)
+	}
+	if _, err := svc.ExecuteOperation(t.Context(), "run-1", "token", model.OperationRequest{
+		OperationID: "restart_service", PlanHash: "changed",
+	}); err == nil {
+		t.Fatal("changed plan hash was accepted")
+	}
+	if _, err := svc.ExecuteOperation(t.Context(), "run-1", "token", model.OperationRequest{
+		OperationID: "restart_service", PlanHash: "hash",
+		Parameters: map[string]string{"service": "other"},
+	}); err == nil {
+		t.Fatal("parameters outside the trusted inventory profile were accepted")
+	}
+	for _, token := range []string{"wrong-host", "wrong-phase", "unapproved"} {
+		if _, err := svc.ExecuteOperation(t.Context(), "run-1", token, model.OperationRequest{
+			OperationID: "restart_service", PlanHash: "hash",
+		}); err == nil {
+			t.Fatalf("operation accepted token %q", token)
+		}
+	}
+	sm.automationRun.ExpiresAt = time.Now().Add(-time.Second)
+	if _, err := svc.ExecuteOperation(t.Context(), "run-1", "token", model.OperationRequest{
+		OperationID: "restart_service", PlanHash: "hash",
+	}); err == nil {
+		t.Fatal("operation accepted an expired automation run")
+	}
+	sm.automationRun = run
+	sm.automationRun.OwnerInstanceID = "stale-instance"
+	if _, err := svc.ExecuteOperation(t.Context(), "run-1", "token", model.OperationRequest{
+		OperationID: "restart_service", PlanHash: "hash",
+	}); err == nil {
+		t.Fatal("operation accepted a stale dataplane instance")
+	}
 }
 
 type fakeShell struct {

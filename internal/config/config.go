@@ -9,21 +9,24 @@ import (
 )
 
 type Config struct {
-	Port              string
-	SessionManagerURL string
-	STSURL            string
-	SSHKeyProvider    string
-	SSHPrivateKeyPEM  string
-	AWSRegion         string
-	SSHConnectTimeout time.Duration
-	SSHRejoinGrace    time.Duration
-	ScrollbackBytes   int
-	PublicURL         string
-	PodID             string
-	PodIP             string
-	InstanceID        string
-	MaxSessions       int
-	HeartbeatInterval time.Duration
+	Port                  string
+	SessionManagerURL     string
+	STSURL                string
+	SSHKeyProvider        string
+	SSHPrivateKeyPEM      string
+	AWSRegion             string
+	SSHConnectTimeout     time.Duration
+	SSHRejoinGrace        time.Duration
+	ScrollbackBytes       int
+	PublicURL             string
+	OperationsURL         string
+	PodID                 string
+	PodIP                 string
+	InstanceID            string
+	MaxSessions           int
+	HeartbeatInterval     time.Duration
+	AutomationTimeout     time.Duration
+	AutomationOutputBytes int
 }
 
 func Load() Config {
@@ -35,22 +38,35 @@ func Load() Config {
 	if err != nil || scrollbackBytes <= 0 {
 		scrollbackBytes = 262144
 	}
+	operationsURL := os.Getenv("PROXY_DATAPLANE_OPERATIONS_URL")
+	port := env("PORT", "8083")
+	podIP := env("POD_IP", "127.0.0.1")
+	if operationsURL == "" {
+		operationsURL = "http://" + podIP + ":" + port
+	}
+	automationOutputBytes, err := strconv.Atoi(env("AUTOMATION_MAX_OUTPUT_BYTES", "262144"))
+	if err != nil || automationOutputBytes <= 0 {
+		automationOutputBytes = 262144
+	}
 	return Config{
-		Port:              env("PORT", "8083"),
-		SessionManagerURL: env("SESSION_MANAGER_URL", "http://localhost:8081"),
-		STSURL:            env("STS_URL", "http://localhost:8082"),
-		SSHKeyProvider:    env("SSH_KEY_PROVIDER", "env"),
-		SSHPrivateKeyPEM:  os.Getenv("SSH_PRIVATE_KEY_PEM"),
-		AWSRegion:         os.Getenv("AWS_REGION"),
-		SSHConnectTimeout: durationEnv("SSH_CONNECT_TIMEOUT", 10*time.Second),
-		SSHRejoinGrace:    durationEnv("SSH_REJOIN_GRACE", 5*time.Minute),
-		ScrollbackBytes:   scrollbackBytes,
-		PublicURL:         env("PROXY_DATAPLANE_PUBLIC_URL", "ws://localhost:8083"),
-		PodID:             env("POD_ID", hostname()),
-		PodIP:             env("POD_IP", "127.0.0.1"),
-		InstanceID:        env("OWNER_INSTANCE_ID", randomID()),
-		MaxSessions:       maxSessions,
-		HeartbeatInterval: 5 * time.Second,
+		Port:                  port,
+		SessionManagerURL:     env("SESSION_MANAGER_URL", "http://localhost:8081"),
+		STSURL:                env("STS_URL", "http://localhost:8082"),
+		SSHKeyProvider:        env("SSH_KEY_PROVIDER", "env"),
+		SSHPrivateKeyPEM:      os.Getenv("SSH_PRIVATE_KEY_PEM"),
+		AWSRegion:             os.Getenv("AWS_REGION"),
+		SSHConnectTimeout:     durationEnv("SSH_CONNECT_TIMEOUT", 10*time.Second),
+		SSHRejoinGrace:        durationEnv("SSH_REJOIN_GRACE", 5*time.Minute),
+		ScrollbackBytes:       scrollbackBytes,
+		PublicURL:             env("PROXY_DATAPLANE_PUBLIC_URL", "ws://localhost:8083"),
+		OperationsURL:         operationsURL,
+		PodID:                 env("POD_ID", hostname()),
+		PodIP:                 podIP,
+		InstanceID:            env("OWNER_INSTANCE_ID", randomID()),
+		MaxSessions:           maxSessions,
+		HeartbeatInterval:     5 * time.Second,
+		AutomationTimeout:     durationEnv("AUTOMATION_OPERATION_TIMEOUT", 30*time.Second),
+		AutomationOutputBytes: automationOutputBytes,
 	}
 }
 

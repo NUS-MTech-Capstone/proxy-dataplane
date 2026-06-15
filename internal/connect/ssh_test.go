@@ -3,7 +3,9 @@ package connect
 import (
 	"bufio"
 	"context"
+	"crypto/ecdsa"
 	"crypto/ed25519"
+	"crypto/elliptic"
 	"crypto/rand"
 	"encoding/pem"
 	"fmt"
@@ -34,11 +36,19 @@ func TestSSHOpenRequestsPTYAndStreamsShell(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	otherHostPrivate, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	otherHostSigner, err := ssh.NewSignerFromKey(otherHostPrivate)
+	if err != nil {
+		t.Fatal(err)
+	}
 	privateKeyBlock, err := ssh.MarshalPrivateKey(clientPrivate, "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	server := newTestSSHServer(t, clientSigner.PublicKey(), hostSigner)
+	server := newTestSSHServer(t, clientSigner.PublicKey(), otherHostSigner, hostSigner)
 	defer server.Close()
 
 	connector := NewSSH(
@@ -85,7 +95,7 @@ type testSSHServer struct {
 	done     chan struct{}
 }
 
-func newTestSSHServer(t *testing.T, allowedClientKey ssh.PublicKey, hostKey ssh.Signer) *testSSHServer {
+func newTestSSHServer(t *testing.T, allowedClientKey ssh.PublicKey, hostKeys ...ssh.Signer) *testSSHServer {
 	t.Helper()
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -104,7 +114,9 @@ func newTestSSHServer(t *testing.T, allowedClientKey ssh.PublicKey, hostKey ssh.
 			return nil, nil
 		},
 	}
-	config.AddHostKey(hostKey)
+	for _, hostKey := range hostKeys {
+		config.AddHostKey(hostKey)
+	}
 	go server.serve(config)
 	return server
 }

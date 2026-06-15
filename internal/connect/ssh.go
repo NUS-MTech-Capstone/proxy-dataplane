@@ -38,10 +38,11 @@ func (c *SSH) Open(ctx context.Context, claims model.SessionClaims) (connection.
 		return nil, err
 	}
 	config := &ssh.ClientConfig{
-		User:            claims.Username,
-		Auth:            []ssh.AuthMethod{ssh.PublicKeys(signer)},
-		HostKeyCallback: ssh.FixedHostKey(hostKey),
-		Timeout:         c.timeout,
+		User:              claims.Username,
+		Auth:              []ssh.AuthMethod{ssh.PublicKeys(signer)},
+		HostKeyCallback:   ssh.FixedHostKey(hostKey),
+		HostKeyAlgorithms: hostKeyAlgorithms(hostKey),
+		Timeout:           c.timeout,
 	}
 	dialer := net.Dialer{Timeout: c.timeout}
 	rawConn, err := dialer.DialContext(ctx, "tcp", claims.Address)
@@ -101,6 +102,13 @@ func (c *SSH) Open(ctx context.Context, claims model.SessionClaims) (connection.
 	return &sshShell{
 		client: client, session: session, stdin: stdin, stdout: stdout, stderr: stderr,
 	}, nil
+}
+
+func hostKeyAlgorithms(hostKey ssh.PublicKey) []string {
+	if hostKey.Type() == ssh.KeyAlgoRSA {
+		return []string{ssh.KeyAlgoRSASHA512, ssh.KeyAlgoRSASHA256, ssh.KeyAlgoRSA}
+	}
+	return []string{hostKey.Type()}
 }
 
 type sshShell struct {

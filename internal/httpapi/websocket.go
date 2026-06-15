@@ -30,6 +30,7 @@ func (s *Server) ws(w http.ResponseWriter, r *http.Request) {
 	}
 	attachment, err := s.svc.Attach(r.Context(), sessionID, token, user.Subject)
 	if err != nil {
+		log.Printf("session attach failed sessionId=%s userId=%s error=%v", sessionID, user.Subject, err)
 		writeError(w, http.StatusConflict, err.Error())
 		return
 	}

@@ -8,6 +8,7 @@ import (
 	"net/http"
 
 	"github.com/NUS-MTech-Capstone/access-proxy/internal/model"
+	"github.com/NUS-MTech-Capstone/access-proxy/internal/observability"
 )
 
 func (c *Client) ValidateAutomationToken(ctx context.Context, runID, token string) (model.AutomationClaims, error) {
@@ -20,6 +21,7 @@ func (c *Client) ValidateAutomationToken(ctx context.Context, runID, token strin
 		return model.AutomationClaims{}, err
 	}
 	req.Header.Set("Content-Type", "application/json")
+	observability.SetRequestHeaders(ctx, req)
 	resp, err := c.client.Do(req)
 	if err != nil {
 		return model.AutomationClaims{}, err

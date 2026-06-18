@@ -2,8 +2,9 @@ package main
 
 import (
 	"context"
-	"log"
+	"log/slog"
 	"net/http"
+	"os"
 	"os/signal"
 	"strings"
 	"syscall"
@@ -12,12 +13,14 @@ import (
 	"github.com/NUS-MTech-Capstone/access-proxy/internal/connect"
 	"github.com/NUS-MTech-Capstone/access-proxy/internal/httpapi"
 	"github.com/NUS-MTech-Capstone/access-proxy/internal/model"
+	"github.com/NUS-MTech-Capstone/access-proxy/internal/observability"
 	"github.com/NUS-MTech-Capstone/access-proxy/internal/service"
 	"github.com/NUS-MTech-Capstone/access-proxy/internal/session_manager"
 	"github.com/NUS-MTech-Capstone/access-proxy/internal/sts"
 )
 
 func main() {
+	observability.ConfigureLogger("proxy-dataplane")
 	cfg := config.Load()
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
@@ -38,10 +41,12 @@ func main() {
 		var err error
 		credentials, err = connect.NewSecretsManagerCredentials(ctx, cfg.AWSRegion)
 		if err != nil {
-			log.Fatalf("initialize AWS Secrets Manager credentials failed: %v", err)
+			slog.Error("initialize AWS Secrets Manager credentials failed", "error", err)
+			os.Exit(1)
 		}
 	default:
-		log.Fatalf("unsupported SSH_KEY_PROVIDER %q", cfg.SSHKeyProvider)
+		slog.Error("unsupported SSH_KEY_PROVIDER", "provider", cfg.SSHKeyProvider)
+		os.Exit(1)
 	}
 	svc := service.New(
 		session_manager.NewSessionManager(cfg.SessionManagerURL),
@@ -55,9 +60,13 @@ func main() {
 		cfg.AutomationOutputBytes,
 	)
 	if err := svc.Start(ctx); err != nil {
-		log.Fatalf("register proxy dataplane failed: %v", err)
+		slog.Error("register proxy dataplane failed", "error", err)
+		os.Exit(1)
 	}
 	addr := ":" + cfg.Port
-	log.Printf("proxy-dataplane listening on %s podId=%s instanceId=%s", addr, cfg.PodID, cfg.InstanceID)
-	log.Fatal(http.ListenAndServe(addr, httpapi.New(svc)))
+	slog.Info("server_listening", "addr", addr, "podId", cfg.PodID, "instanceId", cfg.InstanceID)
+	if err := http.ListenAndServe(addr, httpapi.New(svc)); err != nil {
+		slog.Error("server failed", "error", err)
+		os.Exit(1)
+	}
 }

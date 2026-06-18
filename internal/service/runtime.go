@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 	"io"
-	"log"
+	"log/slog"
 	"sync"
 	"time"
 
@@ -219,7 +219,15 @@ func (r *Runtime) heartbeatLoop() {
 		if err == nil || r.ctx.Err() != nil {
 			return true
 		}
-		log.Printf("session heartbeat failed sessionId=%s error=%v", r.session.SessionID, err)
+		slog.WarnContext(r.ctx, "SessionHeartbeatFailed",
+			"sessionId", r.session.SessionID,
+			"userId", r.session.UserID,
+			"hostId", r.session.HostID,
+			"crId", r.session.CRID,
+			"podId", r.service.pod.PodID,
+			"instanceId", r.service.pod.InstanceID,
+			"error", err,
+		)
 		var terminal interface{ Terminal() bool }
 		if errors.As(err, &terminal) && terminal.Terminal() {
 			r.Close(err)
@@ -277,7 +285,15 @@ func (r *Runtime) Close(reason error) {
 		if err := r.service.sm.CloseSession(
 			closeCtx, r.session.SessionID, r.service.pod.PodID, r.service.pod.InstanceID,
 		); err != nil {
-			log.Printf("close session failed sessionId=%s error=%v", r.session.SessionID, err)
+			slog.WarnContext(closeCtx, "SessionCloseFailed",
+				"sessionId", r.session.SessionID,
+				"userId", r.session.UserID,
+				"hostId", r.session.HostID,
+				"crId", r.session.CRID,
+				"podId", r.service.pod.PodID,
+				"instanceId", r.service.pod.InstanceID,
+				"error", err,
+			)
 		}
 	})
 }

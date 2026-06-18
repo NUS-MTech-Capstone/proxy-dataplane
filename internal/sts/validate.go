@@ -8,6 +8,7 @@ import (
 	"net/http"
 
 	"github.com/NUS-MTech-Capstone/access-proxy/internal/model"
+	"github.com/NUS-MTech-Capstone/access-proxy/internal/observability"
 )
 
 type validateResponse struct {
@@ -30,6 +31,7 @@ func (c *Client) ValidateToken(ctx context.Context, sessionID, userID, token str
 		return model.SessionClaims{}, err
 	}
 	req.Header.Set("Content-Type", "application/json")
+	observability.SetRequestHeaders(ctx, req)
 	resp, err := c.client.Do(req)
 	if err != nil {
 		return model.SessionClaims{}, err

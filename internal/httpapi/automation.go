@@ -3,11 +3,12 @@ package httpapi
 import (
 	"encoding/json"
 	"io"
-	"log"
+	"log/slog"
 	"net/http"
 	"strings"
 
 	"github.com/NUS-MTech-Capstone/access-proxy/internal/model"
+	"github.com/NUS-MTech-Capstone/access-proxy/internal/observability"
 )
 
 func (s *Server) operation(w http.ResponseWriter, r *http.Request) {
@@ -36,11 +37,22 @@ func (s *Server) operation(w http.ResponseWriter, r *http.Request) {
 	}
 	result, err := s.svc.ExecuteOperation(r.Context(), runID, token, req)
 	if err != nil {
-		log.Printf("AutomationOperationFailed runId=%s operationId=%s error=%v", runID, req.OperationID, err)
+		slog.WarnContext(r.Context(), "AutomationOperationFailed",
+			"requestId", observability.RequestID(r.Context()),
+			"runId", runID,
+			"operationId", req.OperationID,
+			"error", err,
+		)
 		writeError(w, http.StatusConflict, err.Error())
 		return
 	}
-	log.Printf("AutomationOperationCompleted runId=%s operationId=%s exitCode=%d", runID, req.OperationID, result.ExitCode)
+	slog.InfoContext(r.Context(), "AutomationOperationCompleted",
+		"requestId", observability.RequestID(r.Context()),
+		"runId", runID,
+		"operationId", req.OperationID,
+		"status", "completed",
+		"exitCode", result.ExitCode,
+	)
 	writeJSON(w, http.StatusOK, result)
 }
 

@@ -2,7 +2,7 @@ package service
 
 import (
 	"context"
-	"log"
+	"log/slog"
 	"time"
 
 	"github.com/NUS-MTech-Capstone/access-proxy/internal/model"
@@ -37,7 +37,11 @@ func (s *Service) heartbeatLoop(ctx context.Context) {
 			return
 		case <-ticker.C:
 			if err := s.sm.HeartbeatPod(ctx, s.podWithActive()); err != nil {
-				log.Printf("proxy pod heartbeat failed podId=%s error=%v", s.pod.PodID, err)
+				slog.WarnContext(ctx, "ProxyPodHeartbeatFailed",
+					"podId", s.pod.PodID,
+					"instanceId", s.pod.InstanceID,
+					"error", err,
+				)
 			}
 		}
 	}

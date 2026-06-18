@@ -8,6 +8,7 @@ import (
 	"net/http"
 
 	"github.com/NUS-MTech-Capstone/access-proxy/internal/model"
+	"github.com/NUS-MTech-Capstone/access-proxy/internal/observability"
 )
 
 func (c *Client) GetSession(ctx context.Context, sessionID string) (model.Session, error) {
@@ -15,6 +16,7 @@ func (c *Client) GetSession(ctx context.Context, sessionID string) (model.Sessio
 	if err != nil {
 		return model.Session{}, err
 	}
+	observability.SetRequestHeaders(ctx, req)
 	resp, err := c.client.Do(req)
 	if err != nil {
 		return model.Session{}, err
@@ -43,6 +45,7 @@ func (c *Client) GetAutomationRun(ctx context.Context, runID string) (model.Auto
 	if err != nil {
 		return model.AutomationRun{}, err
 	}
+	observability.SetRequestHeaders(ctx, req)
 	resp, err := c.client.Do(req)
 	if err != nil {
 		return model.AutomationRun{}, err
@@ -65,6 +68,7 @@ func (c *Client) post(ctx context.Context, path string, req any, out any) error 
 		return err
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
+	observability.SetRequestHeaders(ctx, httpReq)
 	resp, err := c.client.Do(httpReq)
 	if err != nil {
 		return err

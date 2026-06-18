@@ -2,10 +2,11 @@ package httpapi
 
 import (
 	"io"
-	"log"
+	"log/slog"
 	"net/http"
 	"strings"
 
+	"github.com/NUS-MTech-Capstone/access-proxy/internal/observability"
 	"github.com/NUS-MTech-Capstone/access-proxy/internal/protocol"
 )
 
@@ -30,19 +31,33 @@ func (s *Server) ws(w http.ResponseWriter, r *http.Request) {
 	}
 	attachment, err := s.svc.Attach(r.Context(), sessionID, token, user.Subject)
 	if err != nil {
-		log.Printf("session attach failed sessionId=%s userId=%s error=%v", sessionID, user.Subject, err)
+		slog.WarnContext(r.Context(), "SessionAttachFailed",
+			"requestId", observability.RequestID(r.Context()),
+			"sessionId", sessionID,
+			"userId", user.Subject,
+			"error", err,
+		)
 		writeError(w, http.StatusConflict, err.Error())
 		return
 	}
 	conn, err := upgrade(w, r)
 	if err != nil {
 		attachment.Close()
-		log.Printf("websocket upgrade failed sessionId=%s error=%v", sessionID, err)
+		slog.WarnContext(r.Context(), "WebSocketUpgradeFailed",
+			"requestId", observability.RequestID(r.Context()),
+			"sessionId", sessionID,
+			"userId", user.Subject,
+			"error", err,
+		)
 		return
 	}
 	defer conn.Close()
 	defer attachment.Close()
-	log.Printf("SessionAttached sessionId=%s userId=%s", sessionID, user.Subject)
+	slog.InfoContext(r.Context(), "SessionAttached",
+		"requestId", observability.RequestID(r.Context()),
+		"sessionId", sessionID,
+		"userId", user.Subject,
+	)
 
 	localOutput := make(chan protocol.Packet, 8)
 	readDone := make(chan error, 1)
@@ -74,7 +89,12 @@ func (s *Server) ws(w http.ResponseWriter, r *http.Request) {
 			return
 		case err := <-readDone:
 			if err != nil && err != io.EOF {
-				log.Printf("websocket read failed sessionId=%s error=%v", sessionID, err)
+				slog.WarnContext(r.Context(), "WebSocketReadFailed",
+					"requestId", observability.RequestID(r.Context()),
+					"sessionId", sessionID,
+					"userId", user.Subject,
+					"error", err,
+				)
 			}
 			return
 		case packet := <-localOutput:

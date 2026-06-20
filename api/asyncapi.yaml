@@ -1,0 +1,97 @@
+asyncapi: 3.0.0
+info:
+  title: DenDenMushi Terminal WebSocket API
+  version: 0.1.0
+  description: Binary packet protocol for owner and observer terminal attachments.
+servers:
+  local:
+    host: localhost:8083
+    protocol: ws
+channels:
+  terminalSession:
+    address: /sessions/{sessionId}/ws
+    parameters:
+      sessionId:
+        description: Session identifier assigned by Session Manager.
+    messages:
+      input:
+        $ref: "#/components/messages/InputPacket"
+      output:
+        $ref: "#/components/messages/OutputPacket"
+      error:
+        $ref: "#/components/messages/ErrorPacket"
+      sessionEvent:
+        $ref: "#/components/messages/SessionEventPacket"
+      resize:
+        $ref: "#/components/messages/ResizePacket"
+      detach:
+        $ref: "#/components/messages/DetachPacket"
+      endSession:
+        $ref: "#/components/messages/EndSessionPacket"
+operations:
+  clientToDataplane:
+    action: send
+    channel:
+      $ref: "#/channels/terminalSession"
+    messages:
+      - $ref: "#/channels/terminalSession/messages/input"
+      - $ref: "#/channels/terminalSession/messages/resize"
+      - $ref: "#/channels/terminalSession/messages/detach"
+      - $ref: "#/channels/terminalSession/messages/endSession"
+  dataplaneToClient:
+    action: receive
+    channel:
+      $ref: "#/channels/terminalSession"
+    messages:
+      - $ref: "#/channels/terminalSession/messages/output"
+      - $ref: "#/channels/terminalSession/messages/error"
+      - $ref: "#/channels/terminalSession/messages/sessionEvent"
+components:
+  messages:
+    InputPacket:
+      name: input
+      title: Input packet
+      summary: First byte 0x00 followed by raw terminal input bytes. Owners only.
+      payload:
+        $ref: "#/components/schemas/BinaryPacket"
+    OutputPacket:
+      name: output
+      title: Output packet
+      summary: First byte 0x01 followed by raw terminal output bytes.
+      payload:
+        $ref: "#/components/schemas/BinaryPacket"
+    ErrorPacket:
+      name: error
+      title: Error packet
+      summary: First byte 0x02 followed by UTF-8 error text.
+      payload:
+        $ref: "#/components/schemas/BinaryPacket"
+    SessionEventPacket:
+      name: sessionEvent
+      title: Session event packet
+      summary: First byte 0x07 followed by UTF-8 session event text.
+      payload:
+        $ref: "#/components/schemas/BinaryPacket"
+    ResizePacket:
+      name: resize
+      title: Resize packet
+      summary: First byte 0x10 followed by uint16 columns and uint16 rows in big-endian order. Owners only.
+      payload:
+        $ref: "#/components/schemas/BinaryPacket"
+    DetachPacket:
+      name: detach
+      title: Detach packet
+      summary: First byte 0x12 with no payload to detach the WebSocket without closing the session.
+      payload:
+        $ref: "#/components/schemas/BinaryPacket"
+    EndSessionPacket:
+      name: endSession
+      title: End session packet
+      summary: First byte 0x18 with no payload to request session closure. Owners only.
+      payload:
+        $ref: "#/components/schemas/BinaryPacket"
+  schemas:
+    BinaryPacket:
+      type: string
+      format: binary
+      description: Binary WebSocket message. Byte 0 is the packet type; remaining bytes are packet data.

@@ -101,3 +101,19 @@ WebSocket messages are binary. The first byte is the packet type:
 The dataplane uses `golang.org/x/crypto/ssh`, requests an `xterm-256color` PTY,
 and starts a persistent shell. Only one owner may write. Rejoin attaches to the
 same shell, while observers receive scrollback and future output.
+
+## API Specifications
+
+The HTTP OpenAPI contract is checked in at `api/openapi.yaml` and is served
+unauthenticated at:
+
+```http
+GET /openapi.yaml
+```
+
+The terminal WebSocket AsyncAPI contract is checked in at `api/asyncapi.yaml`
+and is served unauthenticated at:
+
+```http
+GET /asyncapi.yaml
+```

@@ -2,7 +2,7 @@ package httpapi
 
 import (
 	"bufio"
-	"crypto/sha1"
+	"crypto/sha1" // #nosec G505 -- RFC 6455 requires SHA-1 for Sec-WebSocket-Accept, not for security.
 	"encoding/base64"
 	"encoding/binary"
 	"errors"
@@ -35,14 +35,14 @@ func upgrade(w http.ResponseWriter, r *http.Request) (*wsConn, error) {
 	if err != nil {
 		return nil, err
 	}
-	hash := sha1.Sum([]byte(key + websocketGUID))
+	hash := sha1.Sum([]byte(key + websocketGUID)) // #nosec G401 -- RFC 6455 requires SHA-1 for this handshake value.
 	accept := base64.StdEncoding.EncodeToString(hash[:])
 	fmt.Fprintf(rw, "HTTP/1.1 101 Switching Protocols\r\n")
 	fmt.Fprintf(rw, "Upgrade: websocket\r\n")
 	fmt.Fprintf(rw, "Connection: Upgrade\r\n")
 	fmt.Fprintf(rw, "Sec-WebSocket-Accept: %s\r\n\r\n", accept)
 	if err := rw.Flush(); err != nil {
-		conn.Close()
+		_ = conn.Close()
 		return nil, err
 	}
 	return &wsConn{conn: conn, rw: rw}, nil
@@ -148,7 +148,10 @@ func (c *wsConn) writeFrame(opcode byte, payload []byte) error {
 	case length < 126:
 		header = append(header, byte(length))
 	case length <= 65535:
-		header = append(header, 126, byte(length>>8), byte(length))
+		var encoded [2]byte
+		binary.BigEndian.PutUint16(encoded[:], uint16(length)) // #nosec G115 -- length is bounded to 65535 in this branch.
+		header = append(header, 126)
+		header = append(header, encoded[:]...)
 	default:
 		header = append(header, 127)
 		var encoded [8]byte

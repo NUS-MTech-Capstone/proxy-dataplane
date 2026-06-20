@@ -8,6 +8,7 @@ import (
 	"os/signal"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/NUS-MTech-Capstone/access-proxy/internal/config"
 	"github.com/NUS-MTech-Capstone/access-proxy/internal/connect"
@@ -65,7 +66,15 @@ func main() {
 	}
 	addr := ":" + cfg.Port
 	slog.Info("server_listening", "addr", addr, "podId", cfg.PodID, "instanceId", cfg.InstanceID)
-	if err := http.ListenAndServe(addr, httpapi.New(svc)); err != nil {
+	server := &http.Server{
+		Addr:              addr,
+		Handler:           httpapi.New(svc),
+		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       15 * time.Second,
+		WriteTimeout:      30 * time.Second,
+		IdleTimeout:       60 * time.Second,
+	}
+	if err := server.ListenAndServe(); err != nil {
 		slog.Error("server failed", "error", err)
 		os.Exit(1)
 	}

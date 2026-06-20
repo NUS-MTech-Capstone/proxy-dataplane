@@ -57,32 +57,32 @@ func (c *SSH) Open(ctx context.Context, claims model.SessionClaims) (connection.
 	clientConn, channels, requests, err := ssh.NewClientConn(rawConn, claims.Address, config)
 	stopCancel()
 	if err != nil {
-		rawConn.Close()
+		_ = rawConn.Close()
 		return nil, err
 	}
 	_ = rawConn.SetDeadline(time.Time{})
 	client := ssh.NewClient(clientConn, channels, requests)
 	session, err := client.NewSession()
 	if err != nil {
-		client.Close()
+		_ = client.Close()
 		return nil, err
 	}
 	stdin, err := session.StdinPipe()
 	if err != nil {
-		session.Close()
-		client.Close()
+		_ = session.Close()
+		_ = client.Close()
 		return nil, err
 	}
 	stdout, err := session.StdoutPipe()
 	if err != nil {
-		session.Close()
-		client.Close()
+		_ = session.Close()
+		_ = client.Close()
 		return nil, err
 	}
 	stderr, err := session.StderrPipe()
 	if err != nil {
-		session.Close()
-		client.Close()
+		_ = session.Close()
+		_ = client.Close()
 		return nil, err
 	}
 	modes := ssh.TerminalModes{
@@ -91,13 +91,13 @@ func (c *SSH) Open(ctx context.Context, claims model.SessionClaims) (connection.
 		ssh.TTY_OP_OSPEED: 14400,
 	}
 	if err := session.RequestPty("xterm-256color", 24, 80, modes); err != nil {
-		session.Close()
-		client.Close()
+		_ = session.Close()
+		_ = client.Close()
 		return nil, err
 	}
 	if err := session.Shell(); err != nil {
-		session.Close()
-		client.Close()
+		_ = session.Close()
+		_ = client.Close()
 		return nil, err
 	}
 	return &sshShell{
@@ -172,7 +172,7 @@ func (c *SSH) openClient(ctx context.Context, address, username, credentialSecre
 	clientConn, channels, requests, err := ssh.NewClientConn(rawConn, address, config)
 	stopCancel()
 	if err != nil {
-		rawConn.Close()
+		_ = rawConn.Close()
 		return nil, err
 	}
 	_ = rawConn.SetDeadline(time.Time{})

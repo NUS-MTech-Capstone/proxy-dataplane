@@ -85,7 +85,7 @@ func (s *Service) startRuntime(ctx context.Context, access Access) (*Attachment,
 	s.mu.Lock()
 	if _, exists := s.runtimes[access.Session.SessionID]; exists {
 		s.mu.Unlock()
-		shell.Close()
+		_ = shell.Close()
 		return nil, ErrRuntimeExists
 	}
 	s.runtimes[access.Session.SessionID] = runtime

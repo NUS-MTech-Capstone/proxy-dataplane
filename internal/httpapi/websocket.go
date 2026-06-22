@@ -16,11 +16,6 @@ func (s *Server) ws(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	user, ok := cognitoUserFromContext(r.Context())
-	if !ok {
-		writeError(w, http.StatusUnauthorized, "missing Cognito identity")
-		return
-	}
 	token := bearerToken(r.Header.Get("Authorization"))
 	if token == "" {
 		token = r.URL.Query().Get("token")
@@ -29,12 +24,28 @@ func (s *Server) ws(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnauthorized, "session token is required")
 		return
 	}
-	attachment, err := s.svc.Attach(r.Context(), sessionID, token, user.Subject)
+
+	cognitoSubject := ""
+	if user, ok := cognitoUserFromContext(r.Context()); ok {
+		cognitoSubject = user.Subject
+	}
+	userID, err := s.svc.ResolveSessionUserID(r.Context(), sessionID, token, cognitoSubject)
+	if err != nil {
+		slog.WarnContext(r.Context(), "SessionAttachAuthFailed",
+			"requestId", observability.RequestID(r.Context()),
+			"sessionId", sessionID,
+			"error", err,
+		)
+		writeError(w, http.StatusUnauthorized, "missing or invalid Cognito identity")
+		return
+	}
+
+	attachment, err := s.svc.Attach(r.Context(), sessionID, token, userID)
 	if err != nil {
 		slog.WarnContext(r.Context(), "SessionAttachFailed",
 			"requestId", observability.RequestID(r.Context()),
 			"sessionId", sessionID,
-			"userId", user.Subject,
+			"userId", userID,
 			"error", err,
 		)
 		writeError(w, http.StatusConflict, err.Error())
@@ -46,7 +57,7 @@ func (s *Server) ws(w http.ResponseWriter, r *http.Request) {
 		slog.WarnContext(r.Context(), "WebSocketUpgradeFailed",
 			"requestId", observability.RequestID(r.Context()),
 			"sessionId", sessionID,
-			"userId", user.Subject,
+			"userId", userID,
 			"error", err,
 		)
 		return
@@ -56,7 +67,7 @@ func (s *Server) ws(w http.ResponseWriter, r *http.Request) {
 	slog.InfoContext(r.Context(), "SessionAttached",
 		"requestId", observability.RequestID(r.Context()),
 		"sessionId", sessionID,
-		"userId", user.Subject,
+		"userId", userID,
 	)
 
 	localOutput := make(chan protocol.Packet, 8)
@@ -92,7 +103,7 @@ func (s *Server) ws(w http.ResponseWriter, r *http.Request) {
 				slog.WarnContext(r.Context(), "WebSocketReadFailed",
 					"requestId", observability.RequestID(r.Context()),
 					"sessionId", sessionID,
-					"userId", user.Subject,
+					"userId", userID,
 					"error", err,
 				)
 			}

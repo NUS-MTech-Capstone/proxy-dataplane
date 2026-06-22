@@ -62,10 +62,11 @@ The SSH shell and Session Manager heartbeat remain active for
 `SSH_REJOIN_GRACE` after owner disconnect, allowing rejoin without losing shell
 state. A bounded `SSH_SCROLLBACK_BYTES` buffer defaults to 256 KiB.
 
-The WebSocket endpoint expects AWS ALB Cognito authentication. The ALB validates
-the Cognito token and forwards the claims JWT in `x-amzn-oidc-data`. The
-dataplane parses the `sub` claim and requires it to match the session's
-`userId`. `GET /healthz` remains unauthenticated.
+The WebSocket endpoint expects AWS ALB Cognito authentication when the ALB
+forwards `x-amzn-oidc-data`. The dataplane parses the `sub` claim and requires
+it to match the session's `userId`. When ALB headers are missing on the
+WebSocket upgrade, the signed STS session token is validated instead and its
+`sub` claim is used. `GET /healthz` remains unauthenticated.
 
 The WebSocket endpoint accepts the session token either as:
 

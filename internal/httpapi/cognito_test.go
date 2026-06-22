@@ -33,6 +33,22 @@ func TestCognitoMiddlewareAddsUserToContext(t *testing.T) {
 	}
 }
 
+func TestOptionalCognitoMiddlewareAllowsMissingHeader(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	rec := httptest.NewRecorder()
+
+	optionalCognitoMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if _, ok := cognitoUserFromContext(r.Context()); ok {
+			t.Fatal("Cognito user should not be in context")
+		}
+		w.WriteHeader(http.StatusNoContent)
+	})).ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusNoContent)
+	}
+}
+
 func TestCognitoMiddlewareRejectsMissingHeader(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	rec := httptest.NewRecorder()

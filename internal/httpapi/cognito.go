@@ -31,6 +31,18 @@ func cognitoMiddleware(next http.Handler) http.Handler {
 	})
 }
 
+// optionalCognitoMiddleware attaches ALB identity to the request context when
+// present but allows the handler to continue without it.
+func optionalCognitoMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if user, err := cognitoUserFromALBHeaders(r); err == nil {
+			ctx := context.WithValue(r.Context(), cognitoUserContextKey{}, user)
+			r = r.WithContext(ctx)
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
 func cognitoUserFromALBHeaders(r *http.Request) (CognitoUser, error) {
 	claims, err := decodeJWTClaims(r.Header.Get("x-amzn-oidc-data"))
 	if err != nil {

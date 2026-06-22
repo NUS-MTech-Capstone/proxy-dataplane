@@ -12,6 +12,8 @@ func (s *Server) routes() {
 	})
 	s.mux.HandleFunc("GET /openapi.yaml", serveYAML(api.OpenAPI))
 	s.mux.HandleFunc("GET /asyncapi.yaml", serveYAML(api.AsyncAPI))
-	s.mux.Handle("GET /sessions/", cognitoMiddleware(http.HandlerFunc(s.ws)))
+	// Optional ALB identity headers are parsed in ws when present; STS token auth
+	// is the fallback because WebSocket upgrades often miss x-amzn-oidc-data.
+	s.mux.Handle("GET /sessions/", optionalCognitoMiddleware(http.HandlerFunc(s.ws)))
 	s.mux.HandleFunc("POST /automation/runs/", s.operation)
 }

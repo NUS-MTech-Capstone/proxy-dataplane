@@ -19,6 +19,25 @@ type Access struct {
 	Claims  model.SessionClaims
 }
 
+// ResolveSessionUserID returns the Cognito subject from ALB headers when present,
+// otherwise from a validated STS session token. Some ALB WebSocket upgrades reach
+// the dataplane without x-amzn-oidc-data even though the browser session is valid
+// on /ddm API routes.
+func (s *Service) ResolveSessionUserID(
+	ctx context.Context,
+	sessionID, token string,
+	cognitoSubject string,
+) (string, error) {
+	if cognitoSubject != "" {
+		return cognitoSubject, nil
+	}
+	claims, err := s.sts.ValidateToken(ctx, sessionID, "", token)
+	if err != nil {
+		return "", err
+	}
+	return claims.UserID, nil
+}
+
 func (s *Service) AuthorizeSession(ctx context.Context, sessionID, token, userID string) (Access, error) {
 	claims, err := s.sts.ValidateToken(ctx, sessionID, userID, token)
 	if err != nil {

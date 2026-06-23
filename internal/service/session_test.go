@@ -2,8 +2,10 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
+	"slices"
 	"sync"
 	"testing"
 	"time"
@@ -347,8 +349,14 @@ func TestStartRejoinObserveAndScrollback(t *testing.T) {
 	if err := observer.Handle(protocol.Packet{Type: protocol.Input, Data: []byte("id\n")}); err == nil {
 		t.Fatal("observer input was accepted")
 	}
+	if err := observer.Handle(protocol.Packet{Type: protocol.Resize, Data: []byte{0, 100, 0, 30}}); err != nil {
+		t.Fatalf("observer resize error = %v, want nil", err)
+	}
 	if !outputContains(t, rejoined, "persistent output") {
 		t.Fatal("rejoined owner did not receive scrollback")
+	}
+	if !eventSnapshotContains(t, rejoined, []string{"observer-1"}) {
+		t.Fatal("rejoined owner did not receive observer attachment snapshot")
 	}
 	if !outputContains(t, observer, "persistent output") {
 		t.Fatal("observer did not receive scrollback")
@@ -364,6 +372,31 @@ func TestStartRejoinObserveAndScrollback(t *testing.T) {
 	defer connector.mu.Unlock()
 	if connector.openCount != 1 {
 		t.Fatalf("SSH opens = %d, want 1", connector.openCount)
+	}
+}
+
+func TestObserverAttachmentSnapshotUpdatesOnDetach(t *testing.T) {
+	sm := &fakeSessionManager{session: testSession()}
+	svc := newTestService(sm, &fakeConnector{}, time.Second)
+	owner, err := svc.Attach(t.Context(), "sess-1", "start", "owner-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if runtime, ok := svc.runtime("sess-1"); ok {
+			runtime.Close(nil)
+		}
+	}()
+	observer, err := svc.Attach(t.Context(), "sess-1", "observe", "observer-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !eventSnapshotContains(t, owner, []string{"observer-1"}) {
+		t.Fatal("owner did not receive observer attachment snapshot")
+	}
+	observer.Close()
+	if !eventSnapshotContains(t, owner, nil) {
+		t.Fatal("owner did not receive observer detach snapshot")
 	}
 }
 
@@ -425,6 +458,31 @@ func outputContains(t *testing.T, attachment *Attachment, expected string) bool 
 		select {
 		case packet := <-attachment.Output():
 			if packet.Type == protocol.Output && string(packet.Data) == expected+"\r\n" {
+				return true
+			}
+		case <-deadline:
+			return false
+		}
+	}
+}
+
+func eventSnapshotContains(t *testing.T, attachment *Attachment, expected []string) bool {
+	t.Helper()
+	deadline := time.After(time.Second)
+	for {
+		select {
+		case packet := <-attachment.Output():
+			if packet.Type != protocol.SessionEvent {
+				continue
+			}
+			var event struct {
+				Type      string   `json:"type"`
+				Observers []string `json:"observers"`
+			}
+			if err := json.Unmarshal(packet.Data, &event); err != nil || event.Type != "attachments" {
+				continue
+			}
+			if slices.Equal(event.Observers, expected) {
 				return true
 			}
 		case <-deadline:

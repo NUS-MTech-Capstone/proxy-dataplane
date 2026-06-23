@@ -2,9 +2,11 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"log/slog"
+	"sort"
 	"sync"
 	"time"
 
@@ -32,6 +34,7 @@ type Runtime struct {
 type Attachment struct {
 	runtime *Runtime
 	mode    string
+	userID  string
 	output  chan protocol.Packet
 	done    chan struct{}
 	once    sync.Once
@@ -62,13 +65,14 @@ func (r *Runtime) Start() {
 	}()
 }
 
-func (r *Runtime) Attach(mode string) (*Attachment, error) {
+func (r *Runtime) Attach(mode, userID string) (*Attachment, error) {
 	if mode != "owner" && mode != "observer" {
 		return nil, errors.New("attachment mode must be owner or observer")
 	}
 	attachment := &Attachment{
 		runtime: r,
 		mode:    mode,
+		userID:  userID,
 		output:  make(chan protocol.Packet, 64),
 		done:    make(chan struct{}),
 	}
@@ -96,6 +100,7 @@ func (r *Runtime) Attach(mode string) (*Attachment, error) {
 		attachment.send(protocol.Packet{Type: protocol.Output, Data: scrollback})
 	}
 	r.Broadcast(protocol.Packet{Type: protocol.SessionEvent, Data: []byte(mode + " attached")})
+	r.broadcastAttachmentSnapshot()
 	return attachment, nil
 }
 
@@ -112,6 +117,9 @@ func (a *Attachment) Handle(packet protocol.Packet) error {
 		return err
 	case protocol.Resize:
 		if !a.runtime.isWriter(a) {
+			if a.mode == "observer" {
+				return nil
+			}
 			return errors.New("attachment is not the active session writer")
 		}
 		cols, rows, err := protocol.ParseResize(packet.Data)
@@ -176,6 +184,40 @@ func (r *Runtime) detach(attachment *Attachment) {
 	}
 	r.mu.Unlock()
 	r.Broadcast(protocol.Packet{Type: protocol.SessionEvent, Data: []byte(attachment.mode + " detached")})
+	r.broadcastAttachmentSnapshot()
+}
+
+func (r *Runtime) broadcastAttachmentSnapshot() {
+	observers := r.observerUserIDs()
+	payload, err := json.Marshal(struct {
+		Type      string   `json:"type"`
+		Observers []string `json:"observers"`
+	}{
+		Type:      "attachments",
+		Observers: observers,
+	})
+	if err != nil {
+		return
+	}
+	r.Broadcast(protocol.Packet{Type: protocol.SessionEvent, Data: payload})
+}
+
+func (r *Runtime) observerUserIDs() []string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	seen := make(map[string]struct{})
+	for client := range r.clients {
+		if client.mode != "observer" || client.userID == "" {
+			continue
+		}
+		seen[client.userID] = struct{}{}
+	}
+	observers := make([]string, 0, len(seen))
+	for userID := range seen {
+		observers = append(observers, userID)
+	}
+	sort.Strings(observers)
+	return observers
 }
 
 func (r *Runtime) Broadcast(packet protocol.Packet) {

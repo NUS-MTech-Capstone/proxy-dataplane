@@ -69,13 +69,13 @@ components:
     SessionEventPacket:
       name: sessionEvent
       title: Session event packet
-      summary: First byte 0x07 followed by UTF-8 session event text.
+      summary: First byte 0x07 followed by UTF-8 session event text or JSON attachment snapshots.
       payload:
         $ref: "#/components/schemas/BinaryPacket"
     ResizePacket:
       name: resize
       title: Resize packet
-      summary: First byte 0x10 followed by uint16 columns and uint16 rows in big-endian order. Owners only.
+      summary: First byte 0x10 followed by uint16 columns and uint16 rows in big-endian order. Owners resize the PTY; observer resize packets are ignored.
       payload:
         $ref: "#/components/schemas/BinaryPacket"
     DetachPacket:

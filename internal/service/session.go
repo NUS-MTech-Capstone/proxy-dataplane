@@ -83,7 +83,7 @@ func (s *Service) Attach(ctx context.Context, sessionID, token, userID string) (
 		if !ok {
 			return nil, ErrRuntimeNotFound
 		}
-		return runtime.Attach(access.Claims.Mode)
+		return runtime.Attach(access.Claims.Mode, access.Claims.UserID)
 	default:
 		return nil, errors.New("unsupported session action")
 	}
@@ -110,7 +110,7 @@ func (s *Service) startRuntime(ctx context.Context, access Access) (*Attachment,
 	s.runtimes[access.Session.SessionID] = runtime
 	s.mu.Unlock()
 	runtime.Start()
-	attachment, err := runtime.Attach("owner")
+	attachment, err := runtime.Attach("owner", access.Claims.UserID)
 	if err != nil {
 		runtime.Close(err)
 		return nil, err

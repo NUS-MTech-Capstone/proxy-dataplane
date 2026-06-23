@@ -103,6 +103,18 @@ The dataplane uses `golang.org/x/crypto/ssh`, requests an `xterm-256color` PTY,
 and starts a persistent shell. Only one owner may write. Rejoin attaches to the
 same shell, while observers receive scrollback and future output.
 
+Session event packets may contain plain UTF-8 lifecycle text such as
+`observer attached`, or a structured JSON attachment snapshot:
+
+```json
+{"type":"attachments","observers":["user-subject-1","user-subject-2"]}
+```
+
+The observer list is live runtime state for the active dataplane process; it is
+not persisted in Session Manager. Observer resize packets are accepted as a
+no-op so read-only viewers do not receive writer-only errors during terminal
+initialization.
+
 ## API Specifications
 
 The HTTP OpenAPI contract is checked in at `api/openapi.yaml` and is served

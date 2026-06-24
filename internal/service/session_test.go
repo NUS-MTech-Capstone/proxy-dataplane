@@ -352,10 +352,11 @@ func TestStartRejoinObserveAndScrollback(t *testing.T) {
 	if err := observer.Handle(protocol.Packet{Type: protocol.Resize, Data: []byte{0, 100, 0, 30}}); err != nil {
 		t.Fatalf("observer resize error = %v, want nil", err)
 	}
-	if !outputContains(t, rejoined, "persistent output") {
+	gotScrollback, gotSnapshot := outputAndEventSnapshotContains(t, rejoined, "persistent output", []string{"observer-1"})
+	if !gotScrollback {
 		t.Fatal("rejoined owner did not receive scrollback")
 	}
-	if !eventSnapshotContains(t, rejoined, []string{"observer-1"}) {
+	if !gotSnapshot {
 		t.Fatal("rejoined owner did not receive observer attachment snapshot")
 	}
 	if !outputContains(t, observer, "persistent output") {
@@ -491,6 +492,34 @@ func eventSnapshotContains(t *testing.T, attachment *Attachment, expected []stri
 	}
 }
 
+func outputAndEventSnapshotContains(t *testing.T, attachment *Attachment, expectedOutput string, expectedObservers []string) (bool, bool) {
+	t.Helper()
+	deadline := time.After(time.Second)
+	gotOutput := false
+	gotSnapshot := false
+	for {
+		select {
+		case packet := <-attachment.Output():
+			if packet.Type == protocol.Output && string(packet.Data) == expectedOutput+"\r\n" {
+				gotOutput = true
+			}
+			if packet.Type == protocol.SessionEvent {
+				var event struct {
+					Type      string   `json:"type"`
+					Observers []string `json:"observers"`
+				}
+				if err := json.Unmarshal(packet.Data, &event); err == nil && event.Type == "attachments" && slices.Equal(event.Observers, expectedObservers) {
+					gotSnapshot = true
+				}
+			}
+			if gotOutput && gotSnapshot {
+				return true, true
+			}
+		case <-deadline:
+			return gotOutput, gotSnapshot
+		}
+	}
+}
 func waitFor(t *testing.T, condition func() bool) {
 	t.Helper()
 	deadline := time.Now().Add(time.Second)

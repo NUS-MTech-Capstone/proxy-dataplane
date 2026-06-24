@@ -1,0 +1,87 @@
+package httpapi
+
+import (
+	"errors"
+	"net/http"
+	"net/http/httptest"
+	"testing"
+	"time"
+
+	"github.com/NUS-MTech-Capstone/access-proxy/internal/model"
+	"github.com/NUS-MTech-Capstone/access-proxy/internal/service"
+)
+
+func TestWebSocketEndpointRejectsBadPathAndMissingToken(t *testing.T) {
+	server := New(nil)
+	tests := []struct {
+		path   string
+		status int
+	}{
+		{path: "/sessions/sess-1/not-ws", status: http.StatusNotFound},
+		{path: "/sessions/sess-1/ws", status: http.StatusUnauthorized},
+	}
+	for _, tt := range tests {
+		rec := httptest.NewRecorder()
+		server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, tt.path, nil))
+		if rec.Code != tt.status {
+			t.Fatalf("%s status = %d, want %d", tt.path, rec.Code, tt.status)
+		}
+	}
+}
+
+func TestParseSessionIDAndBearerToken(t *testing.T) {
+	if id, ok := parseSessionID("/sessions/sess-1/ws"); !ok || id != "sess-1" {
+		t.Fatalf("parseSessionID() = %q/%v", id, ok)
+	}
+	if _, ok := parseSessionID("/sessions/sess-1/other"); ok {
+		t.Fatal("parseSessionID() accepted non-ws path")
+	}
+	if got := bearerToken("Bearer token-1"); got != "token-1" {
+		t.Fatalf("bearerToken() = %q", got)
+	}
+	if got := bearerToken("Basic token-1"); got != "" {
+		t.Fatalf("bearerToken() = %q, want empty", got)
+	}
+}
+
+func TestWebSocketEndpointRejectsInvalidTokenDuringIdentityResolution(t *testing.T) {
+	svc := service.New(
+		automationSM{},
+		automationSTS{err: errors.New("invalid token")},
+		automationExecutor{},
+		model.ProxyPod{PodID: "pod-1", InstanceID: "instance-1"},
+		time.Hour, time.Minute, 1024,
+	)
+	server := New(svc)
+	rec := httptest.NewRecorder()
+
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/sessions/sess-1/ws?token=bad", nil))
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusUnauthorized)
+	}
+}
+
+func TestWebSocketEndpointMapsAttachFailureToConflict(t *testing.T) {
+	svc := service.New(
+		automationSM{session: model.Session{
+			SessionID: "sess-1", UserID: "user-1", HostID: "host-1", CRID: "cr-1",
+			ConnectionType: "ssh", OwnerPodID: "other-pod", OwnerInstanceID: "instance-1", Status: model.SessionStatusActive,
+		}},
+		automationSTS{sessionClaims: model.SessionClaims{
+			SessionID: "sess-1", UserID: "user-1", HostID: "host-1", CRID: "cr-1",
+			ConnectionType: "ssh", Action: "start", Mode: "owner",
+		}},
+		automationExecutor{},
+		model.ProxyPod{PodID: "pod-1", InstanceID: "instance-1"},
+		time.Hour, time.Minute, 1024,
+	)
+	server := New(svc)
+	rec := httptest.NewRecorder()
+
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/sessions/sess-1/ws?token=token", nil))
+
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusConflict)
+	}
+}

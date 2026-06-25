@@ -7,6 +7,7 @@ import (
 	"crypto/ed25519"
 	"crypto/elliptic"
 	"crypto/rand"
+	"crypto/rsa"
 	"encoding/pem"
 	"fmt"
 	"io"
@@ -209,5 +210,50 @@ func TestLimitedBufferBoundsOutput(t *testing.T) {
 	}
 	if output := buffer.String(); !strings.HasPrefix(output, "1234") || !strings.Contains(output, "truncated") {
 		t.Fatalf("output = %q", output)
+	}
+}
+
+func TestLimitedBufferUsesDefaultLimit(t *testing.T) {
+	buffer := newLimitedBuffer(0)
+	if buffer.remaining != 256*1024 {
+		t.Fatalf("remaining = %d, want default 256KiB", buffer.remaining)
+	}
+}
+
+func TestHostKeyAlgorithmsPinsRSAWithSHA2First(t *testing.T) {
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+	signer, err := ssh.NewSignerFromKey(key)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	algorithms := hostKeyAlgorithms(signer.PublicKey())
+	want := []string{ssh.KeyAlgoRSASHA512, ssh.KeyAlgoRSASHA256, ssh.KeyAlgoRSA}
+	if len(algorithms) != len(want) {
+		t.Fatalf("algorithms = %#v, want %#v", algorithms, want)
+	}
+	for i := range want {
+		if algorithms[i] != want[i] {
+			t.Fatalf("algorithms = %#v, want %#v", algorithms, want)
+		}
+	}
+}
+
+func TestHostKeyAlgorithmsUsesNonRSAKeyType(t *testing.T) {
+	_, private, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	signer, err := ssh.NewSignerFromKey(private)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	algorithms := hostKeyAlgorithms(signer.PublicKey())
+	if len(algorithms) != 1 || algorithms[0] != signer.PublicKey().Type() {
+		t.Fatalf("algorithms = %#v, want %q", algorithms, signer.PublicKey().Type())
 	}
 }

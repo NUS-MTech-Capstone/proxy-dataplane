@@ -18,3 +18,39 @@ func TestPacketRoundTripAndResize(t *testing.T) {
 		t.Fatalf("resize = %dx%d", cols, rows)
 	}
 }
+
+func TestParseRejectsEmptyPacket(t *testing.T) {
+	if _, err := Parse(nil); err == nil {
+		t.Fatal("Parse() error = nil, want error")
+	}
+}
+
+func TestParseCopiesPacketData(t *testing.T) {
+	raw := []byte{byte(Input), 'l', 's'}
+	packet, err := Parse(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw[1] = 'x'
+	if string(packet.Data) != "ls" {
+		t.Fatalf("packet data = %q, want independent copy", packet.Data)
+	}
+}
+
+func TestParseResizeRejectsMalformedDimensions(t *testing.T) {
+	tests := []struct {
+		name string
+		data []byte
+	}{
+		{name: "too short", data: []byte{0, 80, 0}},
+		{name: "zero cols", data: []byte{0, 0, 0, 24}},
+		{name: "zero rows", data: []byte{0, 80, 0, 0}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if _, _, err := ParseResize(tt.data); err == nil {
+				t.Fatal("ParseResize() error = nil, want error")
+			}
+		})
+	}
+}

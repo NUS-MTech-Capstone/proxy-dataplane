@@ -6,7 +6,6 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
-	"strings"
 	"syscall"
 	"time"
 
@@ -34,19 +33,9 @@ func main() {
 		Status:        "READY",
 		MaxSessions:   cfg.MaxSessions,
 	}
-	var credentials connect.CredentialProvider
-	switch strings.ToLower(cfg.SSHKeyProvider) {
-	case "", "env":
-		credentials = connect.EnvCredentials{PrivateKeyPEM: cfg.SSHPrivateKeyPEM}
-	case "aws":
-		var err error
-		credentials, err = connect.NewSecretsManagerCredentials(ctx, cfg.AWSRegion)
-		if err != nil {
-			slog.Error("initialize AWS Secrets Manager credentials failed", "error", err)
-			os.Exit(1)
-		}
-	default:
-		slog.Error("unsupported SSH_KEY_PROVIDER", "provider", cfg.SSHKeyProvider)
+	credentials, err := connect.NewCredentialProvider(ctx, cfg.SSHKeyProvider, cfg.SSHPrivateKeyPEM, cfg.AWSRegion)
+	if err != nil {
+		slog.Error("initialize SSH credential provider failed", "provider", cfg.SSHKeyProvider, "error", err)
 		os.Exit(1)
 	}
 	svc := service.New(

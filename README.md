@@ -34,6 +34,14 @@ The secret named by the signed `credentialSecretId` claim must contain the raw,
 unencrypted PEM/OpenSSH private key. Keys are parsed in memory and are never
 written to disk.
 
+## Design Patterns
+
+Proxy Dataplane uses a Strategy pattern for SSH key lookup through
+`connect.CredentialProvider`. `EnvCredentials` supports local runs, while
+`SecretsManagerCredentials` supports AWS deployments. Startup uses the
+`connect.NewCredentialProvider` Factory to select the configured strategy from
+`SSH_KEY_PROVIDER`.
+
 ## Endpoints
 
 ```http
@@ -53,6 +61,11 @@ sudo -- /usr/local/sbin/ddm-ops <operationId>
 It never accepts command text. Read-only operations require diagnose or verify
 capabilities. `restart_service` requires a remediation capability and an exact
 approved plan-hash match.
+
+For Phase 2 AI-agent workflows, Proxy Dataplane remains the owner of live SSH
+PTY sessions and the only component on the terminal data path. The automation
+endpoint is separate from WebSocket terminal handling and accepts only
+allowlisted operation IDs backed by STS capability validation.
 
 The signed STS token determines whether the connection starts, rejoins, or
 observes a session. URL query parameters do not select authorization mode.

@@ -3,6 +3,7 @@ package connect
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/service/secretsmanager"
@@ -75,5 +76,23 @@ func TestEnvCredentialsPrivateKey(t *testing.T) {
 	key, err := (EnvCredentials{PrivateKeyPEM: "pem"}).PrivateKey(t.Context(), "")
 	if err != nil || string(key) != "pem" {
 		t.Fatalf("PrivateKey() = %q, %v", key, err)
+	}
+}
+
+func TestNewCredentialProviderSelectsEnvStrategy(t *testing.T) {
+	provider, err := NewCredentialProvider(t.Context(), "env", "pem", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	key, err := provider.PrivateKey(t.Context(), "")
+	if err != nil || string(key) != "pem" {
+		t.Fatalf("PrivateKey() = %q, %v", key, err)
+	}
+}
+
+func TestNewCredentialProviderRejectsUnknownStrategy(t *testing.T) {
+	_, err := NewCredentialProvider(t.Context(), "vault", "", "")
+	if err == nil || !strings.Contains(err.Error(), "unsupported SSH_KEY_PROVIDER") {
+		t.Fatalf("NewCredentialProvider() error = %v, want unsupported provider", err)
 	}
 }

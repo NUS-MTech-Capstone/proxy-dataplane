@@ -3,6 +3,8 @@ package connect
 import (
 	"context"
 	"errors"
+	"fmt"
+	"strings"
 
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/secretsmanager"
@@ -10,6 +12,17 @@ import (
 
 type CredentialProvider interface {
 	PrivateKey(context.Context, string) ([]byte, error)
+}
+
+func NewCredentialProvider(ctx context.Context, provider, privateKeyPEM, region string) (CredentialProvider, error) {
+	switch strings.ToLower(provider) {
+	case "", "env":
+		return EnvCredentials{PrivateKeyPEM: privateKeyPEM}, nil
+	case "aws":
+		return NewSecretsManagerCredentials(ctx, region)
+	default:
+		return nil, fmt.Errorf("unsupported SSH_KEY_PROVIDER %q", provider)
+	}
 }
 
 type EnvCredentials struct {

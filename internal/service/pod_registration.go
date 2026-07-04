@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/NUS-MTech-Capstone/access-proxy/internal/model"
+	"github.com/NUS-MTech-Capstone/access-proxy/internal/observability"
 )
 
 func (s *Service) Start(ctx context.Context) error {
@@ -40,8 +41,10 @@ func (s *Service) heartbeatLoop(ctx context.Context) {
 				slog.WarnContext(ctx, "ProxyPodHeartbeatFailed",
 					"podId", s.pod.PodID,
 					"instanceId", s.pod.InstanceID,
+					"errorKind", observability.ErrorKind(err),
 					"error", err,
 				)
+				observability.EmitCount("proxy-dataplane", "HeartbeatMisses", map[string]string{"Component": "proxy_pod", "Reason": observability.ErrorKind(err)})
 			}
 		}
 	}

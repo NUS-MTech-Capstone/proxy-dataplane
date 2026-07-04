@@ -12,6 +12,7 @@ import (
 
 	"github.com/NUS-MTech-Capstone/access-proxy/internal/connection"
 	"github.com/NUS-MTech-Capstone/access-proxy/internal/model"
+	"github.com/NUS-MTech-Capstone/access-proxy/internal/observability"
 	"github.com/NUS-MTech-Capstone/access-proxy/internal/protocol"
 )
 
@@ -268,8 +269,10 @@ func (r *Runtime) heartbeatLoop() {
 			"crId", r.session.CRID,
 			"podId", r.service.pod.PodID,
 			"instanceId", r.service.pod.InstanceID,
+			"errorKind", observability.ErrorKind(err),
 			"error", err,
 		)
+		observability.EmitCount("proxy-dataplane", "HeartbeatMisses", map[string]string{"Component": "session", "Reason": observability.ErrorKind(err)})
 		var terminal interface{ Terminal() bool }
 		if errors.As(err, &terminal) && terminal.Terminal() {
 			r.Close(err)
@@ -334,6 +337,7 @@ func (r *Runtime) Close(reason error) {
 				"crId", r.session.CRID,
 				"podId", r.service.pod.PodID,
 				"instanceId", r.service.pod.InstanceID,
+				"errorKind", observability.ErrorKind(err),
 				"error", err,
 			)
 		}

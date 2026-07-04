@@ -3,8 +3,10 @@ package service
 import (
 	"context"
 	"errors"
+	"log/slog"
 
 	"github.com/NUS-MTech-Capstone/access-proxy/internal/model"
+	"github.com/NUS-MTech-Capstone/access-proxy/internal/observability"
 )
 
 var ErrOwnerMismatch = errors.New("session is owned by another proxy dataplane instance")
@@ -98,6 +100,18 @@ func (s *Service) startRuntime(ctx context.Context, access Access) (*Attachment,
 	}
 	shell, err := s.connector.Open(ctx, access.Claims)
 	if err != nil {
+		observability.EmitCount("proxy-dataplane", "SSHFailures", map[string]string{"Component": "ssh", "Reason": observability.ErrorKind(err)})
+		slog.WarnContext(ctx, "SSHFailure",
+			"requestId", observability.RequestID(ctx),
+			"sessionId", access.Session.SessionID,
+			"userId", access.Session.UserID,
+			"hostId", access.Session.HostID,
+			"crId", access.Session.CRID,
+			"podId", s.pod.PodID,
+			"instanceId", s.pod.InstanceID,
+			"errorKind", observability.ErrorKind(err),
+			"error", err,
+		)
 		return nil, err
 	}
 	runtime := newRuntime(s, access.Session, shell)

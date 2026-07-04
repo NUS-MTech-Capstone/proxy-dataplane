@@ -64,6 +64,19 @@ func (s *Server) ws(w http.ResponseWriter, r *http.Request) {
 	}
 	defer conn.Close()
 	defer attachment.Close()
+	disconnectReason := "unknown"
+	defer func() {
+		observability.EmitCount("proxy-dataplane", "WebSocketDisconnects", map[string]string{
+			"Component": "websocket",
+			"Reason":    disconnectReason,
+		})
+		slog.InfoContext(r.Context(), "WebSocketDisconnected",
+			"requestId", observability.RequestID(r.Context()),
+			"sessionId", sessionID,
+			"userId", userID,
+			"reason", disconnectReason,
+		)
+	}()
 	slog.InfoContext(r.Context(), "SessionAttached",
 		"requestId", observability.RequestID(r.Context()),
 		"sessionId", sessionID,
@@ -80,6 +93,12 @@ func (s *Server) ws(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			packet, err := protocol.Parse(data)
+			if err == nil && packet.Type == protocol.ClientClose {
+				disconnectReason = "client_close"
+			}
+			if err == nil && packet.Type == protocol.ClientEndSession {
+				disconnectReason = "client_end_session"
+			}
 			if err == nil {
 				err = attachment.Handle(packet)
 			}
@@ -95,25 +114,35 @@ func (s *Server) ws(w http.ResponseWriter, r *http.Request) {
 	for {
 		select {
 		case <-r.Context().Done():
+			disconnectReason = "context_cancelled"
 			return
 		case <-attachment.Done():
+			if disconnectReason == "unknown" {
+				disconnectReason = "runtime_closed"
+			}
 			return
 		case err := <-readDone:
-			if err != nil && err != io.EOF {
+			if err == io.EOF {
+				disconnectReason = "client_close"
+			} else if err != nil {
+				disconnectReason = "read_error"
 				slog.WarnContext(r.Context(), "WebSocketReadFailed",
 					"requestId", observability.RequestID(r.Context()),
 					"sessionId", sessionID,
 					"userId", userID,
+					"errorKind", observability.ErrorKind(err),
 					"error", err,
 				)
 			}
 			return
 		case packet := <-localOutput:
 			if err := conn.WriteBinary(protocol.Encode(packet)); err != nil {
+				disconnectReason = "write_error"
 				return
 			}
 		case packet := <-attachment.Output():
 			if err := conn.WriteBinary(protocol.Encode(packet)); err != nil {
+				disconnectReason = "write_error"
 				return
 			}
 		}

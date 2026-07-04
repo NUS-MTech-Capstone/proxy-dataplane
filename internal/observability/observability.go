@@ -5,6 +5,8 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
+	"errors"
 	"log/slog"
 	"net"
 	"net/http"
@@ -17,8 +19,16 @@ type contextKey string
 const requestIDKey contextKey = "requestId"
 
 func ConfigureLogger(service string) {
+	env := os.Getenv("ENV")
+	if env == "" {
+		env = os.Getenv("DDM_ENV")
+	}
+	if env == "" {
+		env = "dev"
+	}
 	handler := slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}).WithAttrs([]slog.Attr{
 		slog.String("service", service),
+		slog.String("env", env),
 	})
 	slog.SetDefault(slog.New(handler))
 }
@@ -41,6 +51,9 @@ func SetRequestHeaders(ctx context.Context, req *http.Request) {
 func RequestIDMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requestID := r.Header.Get("X-Request-ID")
+		if requestID == "" {
+			requestID = r.URL.Query().Get("requestId")
+		}
 		if requestID == "" {
 			requestID = newRequestID()
 		}
@@ -94,4 +107,73 @@ func newRequestID() string {
 		return hex.EncodeToString([]byte(time.Now().UTC().Format(time.RFC3339Nano)))
 	}
 	return hex.EncodeToString(b[:])
+}
+
+type Metric struct {
+	Name  string
+	Unit  string
+	Value float64
+}
+
+func EmitMetric(service string, metrics []Metric, dimensions map[string]string) {
+	if len(metrics) == 0 {
+		return
+	}
+	env := os.Getenv("ENV")
+	if env == "" {
+		env = os.Getenv("DDM_ENV")
+	}
+	if env == "" {
+		env = "dev"
+	}
+	values := map[string]any{"Service": service, "Environment": env}
+	for key, value := range dimensions {
+		if value != "" {
+			values[key] = value
+		}
+	}
+	definitions := make([]map[string]string, 0, len(metrics))
+	for _, metric := range metrics {
+		unit := metric.Unit
+		if unit == "" {
+			unit = "Count"
+		}
+		values[metric.Name] = metric.Value
+		definitions = append(definitions, map[string]string{"Name": metric.Name, "Unit": unit})
+	}
+	values["_aws"] = map[string]any{
+		"Timestamp": time.Now().UnixMilli(),
+		"CloudWatchMetrics": []map[string]any{{
+			"Namespace":  namespace(),
+			"Dimensions": [][]string{{"Service", "Environment"}},
+			"Metrics":    definitions,
+		}},
+	}
+	if encoded, err := json.Marshal(values); err == nil {
+		_, _ = os.Stdout.Write(append(encoded, '\n'))
+	}
+}
+
+func EmitCount(service, name string, dimensions map[string]string) {
+	EmitMetric(service, []Metric{{Name: name, Unit: "Count", Value: 1}}, dimensions)
+}
+
+func ErrorKind(err error) string {
+	if err == nil {
+		return ""
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return "timeout"
+	}
+	if errors.Is(err, context.Canceled) {
+		return "cancelled"
+	}
+	return "error"
+}
+
+func namespace() string {
+	if value := os.Getenv("CLOUDWATCH_NAMESPACE"); value != "" {
+		return value
+	}
+	return "DenDenMushi"
 }

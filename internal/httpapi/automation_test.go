@@ -27,6 +27,9 @@ func (f automationSM) GetSession(context.Context, string) (model.Session, error)
 }
 func (f automationSM) HeartbeatSession(context.Context, string, string, string) error { return nil }
 func (f automationSM) CloseSession(context.Context, string, string, string) error     { return nil }
+func (f automationSM) AppendSessionAuditRecords(context.Context, string, model.AppendSessionAuditRecordsRequest) ([]model.SessionAuditRecord, error) {
+	return nil, nil
+}
 func (f automationSM) GetAutomationRun(context.Context, string) (model.AutomationRun, error) {
 	return f.run, nil
 }

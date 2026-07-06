@@ -2,10 +2,12 @@ package service
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"io"
 	"slices"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -23,6 +25,8 @@ type fakeSessionManager struct {
 	podHeartbeats     []model.ProxyPod
 	sessionHeartbeats []string
 	closedSessions    []string
+	auditRecords      []model.AppendSessionAuditRecord
+	auditErr          error
 	heartbeatErr      error
 }
 
@@ -52,6 +56,27 @@ func (f *fakeSessionManager) CloseSession(_ context.Context, sessionID, _, _ str
 	defer f.mu.Unlock()
 	f.closedSessions = append(f.closedSessions, sessionID)
 	return nil
+}
+func (f *fakeSessionManager) AppendSessionAuditRecords(_ context.Context, _ string, req model.AppendSessionAuditRecordsRequest) ([]model.SessionAuditRecord, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.auditRecords = append(f.auditRecords, req.Records...)
+	if f.auditErr != nil {
+		return nil, f.auditErr
+	}
+	records := make([]model.SessionAuditRecord, 0, len(req.Records))
+	for i, record := range req.Records {
+		records = append(records, model.SessionAuditRecord{
+			RecordType:       record.RecordType,
+			CommandID:        record.CommandID,
+			CommandText:      record.CommandText,
+			OutputDataBase64: record.OutputDataBase64,
+			Sequence:         int64(i + 1),
+			Truncated:        record.Truncated,
+			ByteCount:        record.ByteCount,
+		})
+	}
+	return records, nil
 }
 func (f *fakeSessionManager) GetAutomationRun(context.Context, string) (model.AutomationRun, error) {
 	return f.automationRun, nil
@@ -374,6 +399,94 @@ func TestStartRejoinObserveAndScrollback(t *testing.T) {
 	if connector.openCount != 1 {
 		t.Fatalf("SSH opens = %d, want 1", connector.openCount)
 	}
+}
+
+func TestAuditRecorderCapturesOwnerCommandsAndOutput(t *testing.T) {
+	sm := &fakeSessionManager{session: testSession()}
+	connector := &fakeConnector{}
+	svc := newTestService(sm, connector, time.Second)
+	owner, err := svc.Attach(t.Context(), "sess-1", "start", "owner-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if runtime, ok := svc.runtime("sess-1"); ok {
+			runtime.Close(nil)
+		}
+	}()
+
+	if err := owner.Handle(protocol.Packet{Type: protocol.Input, Data: []byte("pwdd\x7f\n")}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := connector.shell.stdoutW.Write([]byte("/home/ubuntu\r\n")); err != nil {
+		t.Fatal(err)
+	}
+
+	waitFor(t, func() bool {
+		sm.mu.Lock()
+		defer sm.mu.Unlock()
+		hasCommand := false
+		hasOutput := false
+		for _, record := range sm.auditRecords {
+			if record.RecordType == model.AuditRecordCommand && record.CommandText == "pwd" {
+				hasCommand = true
+			}
+			if record.RecordType == model.AuditRecordOutput {
+				data, _ := base64.StdEncoding.DecodeString(record.OutputDataBase64)
+				hasOutput = strings.Contains(string(data), "/home/ubuntu")
+			}
+		}
+		return hasCommand && hasOutput
+	})
+}
+
+func TestAuditRecorderHandlesControlKeysAndObserverDoesNotCaptureInput(t *testing.T) {
+	sm := &fakeSessionManager{session: testSession()}
+	connector := &fakeConnector{}
+	svc := newTestService(sm, connector, time.Second)
+	owner, err := svc.Attach(t.Context(), "sess-1", "start", "owner-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if runtime, ok := svc.runtime("sess-1"); ok {
+			runtime.Close(nil)
+		}
+	}()
+	observer, err := svc.Attach(t.Context(), "sess-1", "observe", "observer-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer observer.Close()
+
+	if err := owner.Handle(protocol.Packet{Type: protocol.Input, Data: []byte("echo secret\x17safe\n")}); err != nil {
+		t.Fatal(err)
+	}
+	if err := owner.Handle(protocol.Packet{Type: protocol.Input, Data: []byte{0x03}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := observer.Handle(protocol.Packet{Type: protocol.Input, Data: []byte("whoami\n")}); err == nil {
+		t.Fatal("observer input was accepted")
+	}
+
+	waitFor(t, func() bool {
+		sm.mu.Lock()
+		defer sm.mu.Unlock()
+		hasCommand := false
+		hasControl := false
+		for _, record := range sm.auditRecords {
+			if record.RecordType == model.AuditRecordCommand && record.CommandText == "echo safe" {
+				hasCommand = true
+			}
+			if record.RecordType == model.AuditRecordControl {
+				hasControl = true
+			}
+			if record.CommandText == "whoami" {
+				t.Fatalf("observer command was audited: %#v", sm.auditRecords)
+			}
+		}
+		return hasCommand && hasControl
+	})
 }
 
 func TestObserverAttachmentSnapshotUpdatesOnDetach(t *testing.T) {

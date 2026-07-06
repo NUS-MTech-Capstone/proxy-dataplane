@@ -20,6 +20,7 @@ type Runtime struct {
 	service *Service
 	session model.Session
 	shell   connection.Shell
+	audit   *AuditRecorder
 	ctx     context.Context
 	cancel  context.CancelFunc
 
@@ -47,6 +48,7 @@ func newRuntime(service *Service, session model.Session, shell connection.Shell)
 		service: service,
 		session: session,
 		shell:   shell,
+		audit:   NewAuditRecorder(service, session),
 		ctx:     ctx,
 		cancel:  cancel,
 		clients: make(map[*Attachment]struct{}),
@@ -100,6 +102,7 @@ func (r *Runtime) Attach(mode, userID string) (*Attachment, error) {
 	if len(scrollback) > 0 {
 		attachment.send(protocol.Packet{Type: protocol.Output, Data: scrollback})
 	}
+	r.audit.RecordSessionEvent(mode + " attached")
 	r.Broadcast(protocol.Packet{Type: protocol.SessionEvent, Data: []byte(mode + " attached")})
 	r.broadcastAttachmentSnapshot()
 	return attachment, nil
@@ -114,6 +117,7 @@ func (a *Attachment) Handle(packet protocol.Packet) error {
 		if !a.runtime.isWriter(a) {
 			return errors.New("attachment is not the active session writer")
 		}
+		a.runtime.audit.RecordOwnerInput(packet.Data)
 		_, err := a.runtime.shell.Write(packet.Data)
 		return err
 	case protocol.Resize:
@@ -184,6 +188,7 @@ func (r *Runtime) detach(attachment *Attachment) {
 		}
 	}
 	r.mu.Unlock()
+	r.audit.RecordSessionEvent(attachment.mode + " detached")
 	r.Broadcast(protocol.Packet{Type: protocol.SessionEvent, Data: []byte(attachment.mode + " detached")})
 	r.broadcastAttachmentSnapshot()
 }
@@ -246,7 +251,9 @@ func (r *Runtime) copyOutput(reader io.Reader) {
 	for {
 		n, err := reader.Read(buffer)
 		if n > 0 {
-			r.Broadcast(protocol.Packet{Type: protocol.Output, Data: append([]byte(nil), buffer[:n]...)})
+			data := append([]byte(nil), buffer[:n]...)
+			r.audit.RecordOutput(data)
+			r.Broadcast(protocol.Packet{Type: protocol.Output, Data: data})
 		}
 		if err != nil {
 			return
@@ -319,6 +326,7 @@ func (r *Runtime) Close(reason error) {
 			}
 		}
 		r.cancel()
+		r.audit.Close()
 		_ = r.shell.Close()
 		for _, client := range clients {
 			client.once.Do(func() { close(client.done) })

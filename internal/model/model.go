@@ -19,6 +19,48 @@ type Session struct {
 	LeaseExpiresAt  time.Time `json:"leaseExpiresAt"`
 }
 
+const (
+	AuditRecordCommand      = "command"
+	AuditRecordOutput       = "output"
+	AuditRecordControl      = "control"
+	AuditRecordSessionEvent = "session_event"
+)
+
+type SessionAuditRecord struct {
+	SessionID        string    `json:"sessionId"`
+	UserID           string    `json:"userId"`
+	HostID           string    `json:"hostId"`
+	CRID             string    `json:"crId"`
+	RecordType       string    `json:"recordType"`
+	Sequence         int64     `json:"sequence"`
+	CommandID        string    `json:"commandId,omitempty"`
+	CommandText      string    `json:"commandText,omitempty"`
+	OutputDataBase64 string    `json:"outputDataBase64,omitempty"`
+	CreatedAt        time.Time `json:"createdAt"`
+	Truncated        bool      `json:"truncated"`
+	ByteCount        int       `json:"byteCount"`
+}
+
+type AppendSessionAuditRecord struct {
+	RecordType       string `json:"recordType"`
+	CommandID        string `json:"commandId,omitempty"`
+	CommandText      string `json:"commandText,omitempty"`
+	OutputDataBase64 string `json:"outputDataBase64,omitempty"`
+	CreatedAt        string `json:"createdAt,omitempty"`
+	Truncated        bool   `json:"truncated,omitempty"`
+	ByteCount        int    `json:"byteCount,omitempty"`
+}
+
+type AppendSessionAuditRecordsRequest struct {
+	OwnerPodID      string                     `json:"ownerPodId"`
+	OwnerInstanceID string                     `json:"ownerInstanceId"`
+	Records         []AppendSessionAuditRecord `json:"records"`
+}
+
+type AppendSessionAuditRecordsResponse struct {
+	Records []SessionAuditRecord `json:"records"`
+}
+
 type SessionClaims struct {
 	SessionID          string `json:"sessionId"`
 	UserID             string `json:"userId"`

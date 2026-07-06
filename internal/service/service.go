@@ -15,6 +15,7 @@ type SessionManager interface {
 	GetSession(context.Context, string) (model.Session, error)
 	HeartbeatSession(context.Context, string, string, string) error
 	CloseSession(context.Context, string, string, string) error
+	AppendSessionAuditRecords(context.Context, string, model.AppendSessionAuditRecordsRequest) ([]model.SessionAuditRecord, error)
 }
 
 type TokenValidator interface {

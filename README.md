@@ -59,8 +59,12 @@ sudo -- /usr/local/sbin/ddm-ops <operationId>
 ```
 
 It never accepts command text. Read-only operations require diagnose or verify
-capabilities. `restart_service` requires a remediation capability and an exact
-approved plan-hash match.
+capabilities. Remediation operations from the code-reviewed v1 catalog require
+a remediation capability and an exact approved plan-hash match.
+
+`target_probe` is a read-only operation. It can run only with diagnose or
+verify automation capability and maps to the same fixed `ddm-ops` helper path
+as the other catalog operations.
 
 For Phase 2 AI-agent workflows, Proxy Dataplane remains the owner of live SSH
 PTY sessions and the only component on the terminal data path. The automation

@@ -159,6 +159,30 @@ func TestExecuteOperationRequiresAssignedInstanceAndPlanHash(t *testing.T) {
 			OwnerPodID: "pod-1", OwnerInstanceID: "instance-1",
 			HelperPath: "/usr/local/sbin/ddm-ops",
 		},
+		"reload": {
+			RunID: "run-1", IncidentID: "inc-1", HostID: "host-1", Phase: "remediate",
+			AllowedOperations: []string{"reload_service"}, PlanHash: "hash",
+			OwnerPodID: "pod-1", OwnerInstanceID: "instance-1",
+			HelperPath: "/usr/local/sbin/ddm-ops",
+		},
+		"target-probe-diagnose": {
+			RunID: "run-1", IncidentID: "inc-1", HostID: "host-1", Phase: "diagnose",
+			AllowedOperations: []string{"target_probe"},
+			OwnerPodID:        "pod-1", OwnerInstanceID: "instance-1",
+			HelperPath: "/usr/local/sbin/ddm-ops",
+		},
+		"target-probe-verify": {
+			RunID: "run-1", IncidentID: "inc-1", HostID: "host-1", Phase: "verify",
+			AllowedOperations: []string{"target_probe"},
+			OwnerPodID:        "pod-1", OwnerInstanceID: "instance-1",
+			HelperPath: "/usr/local/sbin/ddm-ops",
+		},
+		"target-probe-remediate": {
+			RunID: "run-1", IncidentID: "inc-1", HostID: "host-1", Phase: "remediate",
+			AllowedOperations: []string{"target_probe"}, PlanHash: "hash",
+			OwnerPodID: "pod-1", OwnerInstanceID: "instance-1",
+			HelperPath: "/usr/local/sbin/ddm-ops",
+		},
 	}}
 	connector := &fakeConnector{}
 	svc := New(
@@ -180,6 +204,35 @@ func TestExecuteOperationRequiresAssignedInstanceAndPlanHash(t *testing.T) {
 	connector.mu.Unlock()
 	if command != "sudo -- /usr/local/sbin/ddm-ops restart_service" {
 		t.Fatalf("command = %q", command)
+	}
+	if _, err := svc.ExecuteOperation(t.Context(), "run-1", "reload", model.OperationRequest{
+		OperationID: "reload_service", PlanHash: "hash",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	connector.mu.Lock()
+	command = connector.commands[len(connector.commands)-1]
+	connector.mu.Unlock()
+	if command != "sudo -- /usr/local/sbin/ddm-ops reload_service" {
+		t.Fatalf("command = %q", command)
+	}
+	for _, token := range []string{"target-probe-diagnose", "target-probe-verify"} {
+		if _, err := svc.ExecuteOperation(t.Context(), "run-1", token, model.OperationRequest{
+			OperationID: "target_probe",
+		}); err != nil {
+			t.Fatalf("target_probe rejected for token %q: %v", token, err)
+		}
+	}
+	connector.mu.Lock()
+	command = connector.commands[len(connector.commands)-1]
+	connector.mu.Unlock()
+	if command != "sudo -- /usr/local/sbin/ddm-ops target_probe" {
+		t.Fatalf("command = %q", command)
+	}
+	if _, err := svc.ExecuteOperation(t.Context(), "run-1", "target-probe-remediate", model.OperationRequest{
+		OperationID: "target_probe", PlanHash: "hash",
+	}); err == nil {
+		t.Fatal("target_probe was accepted as a remediation operation")
 	}
 	if _, err := svc.ExecuteOperation(t.Context(), "run-1", "token", model.OperationRequest{
 		OperationID: "restart_service", PlanHash: "changed",

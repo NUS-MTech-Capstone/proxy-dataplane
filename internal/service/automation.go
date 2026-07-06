@@ -9,15 +9,11 @@ import (
 	"slices"
 	"time"
 
+	"github.com/NUS-MTech-Capstone/access-proxy/internal/catalog"
 	"github.com/NUS-MTech-Capstone/access-proxy/internal/model"
 )
 
 var helperPathPattern = regexp.MustCompile(`^/[A-Za-z0-9._/-]+$`)
-
-var readOnlyOperations = []string{
-	"system_overview", "disk_usage", "memory_usage", "top_processes",
-	"service_status", "service_logs", "health_check",
-}
 
 func (s *Service) ExecuteOperation(ctx context.Context, runID, token string, req model.OperationRequest) (model.OperationResult, error) {
 	if s.executor == nil || s.automationSM == nil || s.automationSTS == nil {
@@ -48,11 +44,11 @@ func (s *Service) ExecuteOperation(ctx context.Context, runID, token string, req
 		return model.OperationResult{}, errors.New("operation does not accept parameters")
 	}
 	switch {
-	case slices.Contains(readOnlyOperations, req.OperationID):
+	case catalog.IsReadOnly(req.OperationID):
 		if claims.Phase != "diagnose" && claims.Phase != "verify" {
 			return model.OperationResult{}, errors.New("read-only operation is not allowed in this phase")
 		}
-	case req.OperationID == "restart_service":
+	case catalog.IsRemediation(req.OperationID):
 		if claims.Phase != "remediate" || claims.PlanHash == "" || req.PlanHash == "" ||
 			subtle.ConstantTimeCompare([]byte(claims.PlanHash), []byte(req.PlanHash)) != 1 {
 			return model.OperationResult{}, errors.New("remediation plan hash mismatch")

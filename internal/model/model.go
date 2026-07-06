@@ -103,6 +103,7 @@ type AutomationClaims struct {
 	RunID              string   `json:"runId"`
 	IncidentID         string   `json:"incidentId"`
 	HostID             string   `json:"hostId"`
+	CatalogVersion     string   `json:"catalogVersion,omitempty"`
 	Phase              string   `json:"phase"`
 	AllowedOperations  []string `json:"allowedOperations"`
 	PlanHash           string   `json:"planHash,omitempty"`

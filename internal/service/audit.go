@@ -205,7 +205,20 @@ func (r *AuditRecorder) run() {
 func (r *AuditRecorder) flush(records []model.AppendSessionAuditRecord) {
 	ctx, cancel := context.WithTimeout(r.service.rootCtx, auditAppendTimeout)
 	defer cancel()
-	appended, err := r.service.sm.AppendSessionAuditRecords(ctx, r.session.SessionID, model.AppendSessionAuditRecordsRequest{
+	if r.service.audit == nil {
+		observability.EmitCount("proxy-dataplane", "SessionAuditAppendFailures", map[string]string{"Component": "audit", "Reason": "unconfigured"})
+		slog.WarnContext(ctx, "SessionAuditAppendFailed",
+			"sessionId", r.session.SessionID,
+			"userId", r.session.UserID,
+			"hostId", r.session.HostID,
+			"crId", r.session.CRID,
+			"podId", r.service.pod.PodID,
+			"instanceId", r.service.pod.InstanceID,
+			"errorKind", "unconfigured",
+		)
+		return
+	}
+	appended, err := r.service.audit.AppendSessionAuditRecords(ctx, r.session.SessionID, model.AppendSessionAuditRecordsRequest{
 		OwnerPodID:      r.service.pod.PodID,
 		OwnerInstanceID: r.service.pod.InstanceID,
 		Records:         append([]model.AppendSessionAuditRecord(nil), records...),

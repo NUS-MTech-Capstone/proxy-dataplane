@@ -15,6 +15,7 @@ import (
 	"github.com/NUS-MTech-Capstone/access-proxy/internal/model"
 	"github.com/NUS-MTech-Capstone/access-proxy/internal/observability"
 	"github.com/NUS-MTech-Capstone/access-proxy/internal/service"
+	"github.com/NUS-MTech-Capstone/access-proxy/internal/session_audit"
 	"github.com/NUS-MTech-Capstone/access-proxy/internal/session_manager"
 	"github.com/NUS-MTech-Capstone/access-proxy/internal/sts"
 )
@@ -46,6 +47,7 @@ func main() {
 		cfg.HeartbeatInterval,
 		cfg.SSHRejoinGrace,
 		cfg.ScrollbackBytes,
+		session_audit.NewSessionAudit(cfg.SessionAuditURL),
 		cfg.AutomationTimeout,
 		cfg.AutomationOutputBytes,
 	)

@@ -40,18 +40,6 @@ func (c *Client) CloseSession(ctx context.Context, sessionID, podID, instanceID 
 	}, nil)
 }
 
-func (c *Client) AppendSessionAuditRecords(
-	ctx context.Context,
-	sessionID string,
-	req model.AppendSessionAuditRecordsRequest,
-) ([]model.SessionAuditRecord, error) {
-	var response model.AppendSessionAuditRecordsResponse
-	if err := c.post(ctx, "/sessions/"+sessionID+"/audit/records", req, &response); err != nil {
-		return nil, err
-	}
-	return response.Records, nil
-}
-
 func (c *Client) GetAutomationRun(ctx context.Context, runID string) (model.AutomationRun, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+"/automation/runs/"+runID, nil)
 	if err != nil {

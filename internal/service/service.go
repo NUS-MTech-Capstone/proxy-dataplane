@@ -15,11 +15,14 @@ type SessionManager interface {
 	GetSession(context.Context, string) (model.Session, error)
 	HeartbeatSession(context.Context, string, string, string) error
 	CloseSession(context.Context, string, string, string) error
-	AppendSessionAuditRecords(context.Context, string, model.AppendSessionAuditRecordsRequest) ([]model.SessionAuditRecord, error)
 }
 
 type TokenValidator interface {
 	ValidateToken(context.Context, string, string, string) (model.SessionClaims, error)
+}
+
+type AuditClient interface {
+	AppendSessionAuditRecords(context.Context, string, model.AppendSessionAuditRecordsRequest) ([]model.SessionAuditRecord, error)
 }
 
 type AutomationSessionManager interface {
@@ -32,6 +35,7 @@ type AutomationTokenValidator interface {
 
 type Service struct {
 	sm                    SessionManager
+	audit                 AuditClient
 	sts                   TokenValidator
 	automationSM          AutomationSessionManager
 	automationSTS         AutomationTokenValidator
@@ -68,6 +72,7 @@ func New(
 	if candidate, ok := connector.(connection.CommandExecutor); ok {
 		executor = candidate
 	}
+	audit, _ := sm.(AuditClient)
 	automationSM, _ := sm.(AutomationSessionManager)
 	automationSTS, _ := sts.(AutomationTokenValidator)
 	automationTimeout := 30 * time.Second
@@ -76,6 +81,8 @@ func New(
 		switch value := option.(type) {
 		case connection.CommandExecutor:
 			executor = value
+		case AuditClient:
+			audit = value
 		case time.Duration:
 			if value > 0 {
 				automationTimeout = value
@@ -88,6 +95,7 @@ func New(
 	}
 	return &Service{
 		sm:                    sm,
+		audit:                 audit,
 		sts:                   sts,
 		automationSM:          automationSM,
 		automationSTS:         automationSTS,

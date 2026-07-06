@@ -140,34 +140,6 @@ func TestHeartbeatPodAndGetAutomationRun(t *testing.T) {
 	}
 }
 
-func TestAppendSessionAuditRecordsSendsOwnerAndRecords(t *testing.T) {
-	client := NewSessionManager("http://session-manager.example")
-	client.client.Transport = roundTripFunc(func(req *http.Request) (*http.Response, error) {
-		if req.Method != http.MethodPost || req.URL.Path != "/sessions/sess-1/audit/records" {
-			t.Fatalf("request = %s %s", req.Method, req.URL.Path)
-		}
-		var body model.AppendSessionAuditRecordsRequest
-		if err := json.NewDecoder(req.Body).Decode(&body); err != nil {
-			t.Fatal(err)
-		}
-		if body.OwnerPodID != "pod-1" || body.OwnerInstanceID != "instance-1" || len(body.Records) != 1 {
-			t.Fatalf("body = %#v", body)
-		}
-		return dpJSONResponse(http.StatusCreated, `{"records":[{"sequence":1,"recordType":"command","commandText":"pwd"}]}`), nil
-	})
-
-	records, err := client.AppendSessionAuditRecords(t.Context(), "sess-1", model.AppendSessionAuditRecordsRequest{
-		OwnerPodID: "pod-1", OwnerInstanceID: "instance-1",
-		Records: []model.AppendSessionAuditRecord{{RecordType: model.AuditRecordCommand, CommandText: "pwd"}},
-	})
-	if err != nil {
-		t.Fatalf("AppendSessionAuditRecords() error = %v", err)
-	}
-	if len(records) != 1 || records[0].Sequence != 1 {
-		t.Fatalf("records = %#v", records)
-	}
-}
-
 func dpJSONResponse(status int, body string) *http.Response {
 	return &http.Response{
 		StatusCode: status,

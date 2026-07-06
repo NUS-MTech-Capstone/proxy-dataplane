@@ -10,6 +10,7 @@ Start Session Manager and STS first, then:
 ```bash
 PORT=8083 \
 SESSION_MANAGER_URL=http://localhost:8081 \
+SESSION_AUDIT_URL=http://localhost:8085 \
 STS_URL=http://localhost:8082 \
 SSH_KEY_PROVIDER=env \
 SSH_PRIVATE_KEY_PEM="$(cat ~/.ssh/id_ed25519)" \
@@ -80,7 +81,7 @@ The SSH shell and Session Manager heartbeat remain active for
 state. A bounded `SSH_SCROLLBACK_BYTES` buffer defaults to 256 KiB.
 
 Proxy Dataplane also captures retained command/output audit records from the
-PTY owner path and appends them asynchronously to Session Manager. Command
+PTY owner path and appends them asynchronously to Audit Service. Command
 capture is best-effort because the SSH session is a raw PTY: printable owner
 input is buffered until Enter, basic edit controls such as Backspace, Ctrl-U,
 Ctrl-W, and Ctrl-C are interpreted, and observer input is never audited because
@@ -88,9 +89,9 @@ observers cannot write. PTY stdout/stderr chunks are stored as output records
 linked to the most recent submitted command when possible.
 
 Audit appends are batched with a bounded queue and timeout. Append failures or
-Session Manager outages emit metadata-only logs/metrics and do not break live
+Audit Service outages emit metadata-only logs/metrics and do not break live
 terminal I/O. Command text and output bytes must not be logged to CloudWatch or
-normal application logs. When Session Manager reports a truncated audit record,
+normal application logs. When Audit Service reports a truncated audit record,
 the dataplane stops sending further audit output for that session while the SSH
 session continues.
 

@@ -11,6 +11,7 @@ import (
 type Config struct {
 	Port                  string
 	SessionManagerURL     string
+	SessionAuditURL       string
 	STSURL                string
 	SSHKeyProvider        string
 	SSHPrivateKeyPEM      string
@@ -51,6 +52,7 @@ func Load() Config {
 	return Config{
 		Port:                  port,
 		SessionManagerURL:     env("SESSION_MANAGER_URL", "http://localhost:8081"),
+		SessionAuditURL:       env("SESSION_AUDIT_URL", "http://localhost:8085"),
 		STSURL:                env("STS_URL", "http://localhost:8082"),
 		SSHKeyProvider:        env("SSH_KEY_PROVIDER", "env"),
 		SSHPrivateKeyPEM:      os.Getenv("SSH_PRIVATE_KEY_PEM"),

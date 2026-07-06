@@ -17,7 +17,7 @@ func TestLoadAppliesDefaultsAndDerivedOperationsURL(t *testing.T) {
 		cfg.PodID != "pod-1" || cfg.InstanceID != "instance-1" {
 		t.Fatalf("Load() = %#v", cfg)
 	}
-	if cfg.SessionManagerURL != "http://localhost:8081" || cfg.STSURL != "http://localhost:8082" ||
+	if cfg.SessionManagerURL != "http://localhost:8081" || cfg.SessionAuditURL != "http://localhost:8085" || cfg.STSURL != "http://localhost:8082" ||
 		cfg.SSHKeyProvider != "env" || cfg.PublicURL != "ws://localhost:8083" {
 		t.Fatalf("defaults = %#v", cfg)
 	}

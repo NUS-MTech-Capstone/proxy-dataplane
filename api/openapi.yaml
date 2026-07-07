@@ -2,7 +2,7 @@ openapi: 3.1.0
 info:
   title: DenDenMushi Proxy Dataplane API
   version: 0.1.0
-  description: Runtime API for dataplane health, terminal WebSocket upgrade, and automation operations.
+  description: Runtime API for dataplane health, terminal WebSocket upgrade, and automation operations. Business endpoints require the `x-api-version: 1` header; browser WebSocket upgrades may use `apiVersion=1` in the query string because browsers cannot set custom WebSocket headers. Probe, OpenAPI, and AsyncAPI endpoints are exempt.
 servers:
   - url: http://localhost:8083
 paths:

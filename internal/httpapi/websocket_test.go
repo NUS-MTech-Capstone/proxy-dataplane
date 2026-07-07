@@ -14,15 +14,20 @@ import (
 func TestWebSocketEndpointRejectsBadPathAndMissingToken(t *testing.T) {
 	server := New(nil)
 	tests := []struct {
-		path   string
-		status int
+		path      string
+		useHeader bool
+		status    int
 	}{
-		{path: "/sessions/sess-1/not-ws", status: http.StatusNotFound},
-		{path: "/sessions/sess-1/ws", status: http.StatusUnauthorized},
+		{path: "/sessions/sess-1/not-ws", useHeader: true, status: http.StatusNotFound},
+		{path: "/sessions/sess-1/ws?apiVersion=1", status: http.StatusUnauthorized},
 	}
 	for _, tt := range tests {
 		rec := httptest.NewRecorder()
-		server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, tt.path, nil))
+		req := httptest.NewRequest(http.MethodGet, tt.path, nil)
+		if tt.useHeader {
+			req.Header.Set(apiVersionHeader, supportedAPIVersion)
+		}
+		server.ServeHTTP(rec, req)
 		if rec.Code != tt.status {
 			t.Fatalf("%s status = %d, want %d", tt.path, rec.Code, tt.status)
 		}
@@ -55,7 +60,7 @@ func TestWebSocketEndpointRejectsInvalidTokenDuringIdentityResolution(t *testing
 	server := New(svc)
 	rec := httptest.NewRecorder()
 
-	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/sessions/sess-1/ws?token=bad", nil))
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/sessions/sess-1/ws?token=bad&apiVersion=1", nil))
 
 	if rec.Code != http.StatusUnauthorized {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusUnauthorized)
@@ -79,7 +84,7 @@ func TestWebSocketEndpointMapsAttachFailureToConflict(t *testing.T) {
 	server := New(svc)
 	rec := httptest.NewRecorder()
 
-	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/sessions/sess-1/ws?token=token", nil))
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/sessions/sess-1/ws?token=token&apiVersion=1", nil))
 
 	if rec.Code != http.StatusConflict {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusConflict)

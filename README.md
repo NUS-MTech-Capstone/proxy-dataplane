@@ -163,3 +163,9 @@ and is served unauthenticated at:
 ```http
 GET /asyncapi.yaml
 ```
+
+Business endpoints require `x-api-version: 1`. `GET /healthz`,
+`GET /openapi.yaml`, and `GET /asyncapi.yaml` are exempt. Browser WebSocket
+upgrades may send `apiVersion=1` in the query string because browser
+`WebSocket` clients cannot set custom upgrade headers; non-browser clients
+should send `x-api-version: 1`.

@@ -84,6 +84,7 @@ func TestOperationEndpointValidationAndSuccess(t *testing.T) {
 			rec := httptest.NewRecorder()
 			req := httptest.NewRequest(http.MethodPost, tt.path, strings.NewReader(tt.body))
 			req.Header.Set("Authorization", tt.auth)
+			req.Header.Set(apiVersionHeader, supportedAPIVersion)
 			server.ServeHTTP(rec, req)
 			if rec.Code != tt.status {
 				t.Fatalf("status = %d, want %d, body=%s", rec.Code, tt.status, rec.Body.String())
@@ -97,6 +98,7 @@ func TestOperationEndpointMapsServiceFailureToConflict(t *testing.T) {
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/automation/runs/run-1/operations", strings.NewReader(`{"operationId":"health_check"}`))
 	req.Header.Set("Authorization", "Bearer token")
+	req.Header.Set(apiVersionHeader, supportedAPIVersion)
 
 	server.ServeHTTP(rec, req)
 

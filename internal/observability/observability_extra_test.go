@@ -16,6 +16,9 @@ func TestRequestIDMiddlewareAndSetRequestHeaders(t *testing.T) {
 		if outbound.Header.Get("X-Request-ID") != "req-1" {
 			t.Fatalf("outbound X-Request-ID = %q", outbound.Header.Get("X-Request-ID"))
 		}
+		if outbound.Header.Get("x-api-version") != "1" {
+			t.Fatalf("outbound api version = %q", outbound.Header.Get("x-api-version"))
+		}
 		w.WriteHeader(http.StatusAccepted)
 	})))
 	rec := httptest.NewRecorder()

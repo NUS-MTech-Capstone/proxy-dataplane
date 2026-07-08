@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"time"
 
@@ -42,7 +43,8 @@ func (c *Client) AppendSessionAuditRecords(
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, ResponseError{StatusCode: resp.StatusCode}
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
+		return nil, ResponseError{StatusCode: resp.StatusCode, Body: string(body)}
 	}
 	var response model.AppendSessionAuditRecordsResponse
 	if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
@@ -53,9 +55,13 @@ func (c *Client) AppendSessionAuditRecords(
 
 type ResponseError struct {
 	StatusCode int
+	Body       string
 }
 
 func (e ResponseError) Error() string {
+	if e.Body != "" {
+		return fmt.Sprintf("audit-service returned status %d: %s", e.StatusCode, e.Body)
+	}
 	return fmt.Sprintf("audit-service returned status %d", e.StatusCode)
 }
 

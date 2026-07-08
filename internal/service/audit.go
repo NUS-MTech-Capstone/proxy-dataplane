@@ -277,6 +277,17 @@ func (r *AuditRecorder) flush(records []model.AppendSessionAuditRecord) {
 		)
 		return
 	}
+	observability.EmitCount("proxy-dataplane", "SessionAuditAppendSuccess", map[string]string{"Component": "audit"})
+	slog.InfoContext(ctx, "SessionAuditAppendSucceeded",
+		"sessionId", r.session.SessionID,
+		"userId", r.session.UserID,
+		"hostId", r.session.HostID,
+		"crId", r.session.CRID,
+		"podId", r.service.pod.PodID,
+		"instanceId", r.service.pod.InstanceID,
+		"recordCount", len(records),
+		"appendedCount", len(appended),
+	)
 	for _, record := range appended {
 		if record.Truncated {
 			r.mu.Lock()

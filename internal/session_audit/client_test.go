@@ -65,8 +65,14 @@ func TestAppendSessionAuditRecordsClassifiesStatus(t *testing.T) {
 	if !strings.Contains(err.Error(), "audit-service") {
 		t.Fatalf("AppendSessionAuditRecords() error = %v, want audit-service source", err)
 	}
+	if !strings.Contains(err.Error(), "owner mismatch") {
+		t.Fatalf("AppendSessionAuditRecords() error = %v, want response body", err)
+	}
 	if !asResponseError(err, &responseErr) || !responseErr.Terminal() {
 		t.Fatalf("AppendSessionAuditRecords() error = %v, want terminal ResponseError", err)
+	}
+	if responseErr.Body != `{"error":"owner mismatch"}` {
+		t.Fatalf("ResponseError.Body = %q", responseErr.Body)
 	}
 }
 

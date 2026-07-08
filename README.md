@@ -174,3 +174,5 @@ Business endpoints require `x-api-version: 1`. `GET /healthz`,
 upgrades may send `apiVersion=1` in the query string because browser
 `WebSocket` clients cannot set custom upgrade headers; non-browser clients
 should send `x-api-version: 1`.
+Successful probe request logs are suppressed; failed probe responses still emit
+request logs.

@@ -56,6 +56,11 @@ func main() {
 		os.Exit(1)
 	}
 	addr := ":" + cfg.Port
+	slog.Info("session_audit_configured",
+		"sessionAuditURL", cfg.SessionAuditURL,
+		"podId", cfg.PodID,
+		"instanceId", cfg.InstanceID,
+	)
 	slog.Info("server_listening", "addr", addr, "podId", cfg.PodID, "instanceId", cfg.InstanceID)
 	server := &http.Server{
 		Addr:              addr,

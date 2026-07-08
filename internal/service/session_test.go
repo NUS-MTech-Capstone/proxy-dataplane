@@ -493,6 +493,88 @@ func TestAuditRecorderCapturesOwnerCommandsAndOutput(t *testing.T) {
 	})
 }
 
+func TestAuditRecorderStripsTerminalEchoFromRetainedOutput(t *testing.T) {
+	sm := &fakeSessionManager{session: testSession()}
+	connector := &fakeConnector{}
+	svc := newTestService(sm, connector, time.Second)
+	owner, err := svc.Attach(t.Context(), "sess-1", "start", "owner-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if runtime, ok := svc.runtime("sess-1"); ok {
+			runtime.Close(nil)
+		}
+	}()
+
+	if err := owner.Handle(protocol.Packet{Type: protocol.Input, Data: []byte("ls -lrta")}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := connector.shell.stdoutW.Write([]byte("ls -lrta")); err != nil {
+		t.Fatal(err)
+	}
+	if err := owner.Handle(protocol.Packet{Type: protocol.Input, Data: []byte("\r")}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := connector.shell.stdoutW.Write([]byte("\r\ntotal 0\r\n")); err != nil {
+		t.Fatal(err)
+	}
+
+	waitFor(t, func() bool {
+		sm.mu.Lock()
+		defer sm.mu.Unlock()
+		hasCommand := false
+		hasResultOutput := false
+		for _, record := range sm.auditRecords {
+			if record.RecordType == model.AuditRecordCommand && record.CommandText == "ls -lrta" {
+				hasCommand = true
+			}
+			if record.RecordType != model.AuditRecordOutput {
+				continue
+			}
+			data, _ := base64.StdEncoding.DecodeString(record.OutputDataBase64)
+			if strings.Contains(string(data), "ls -lrta") {
+				t.Fatalf("terminal command echo was retained as output: %#v", sm.auditRecords)
+			}
+			if record.CommandID != "" && strings.Contains(string(data), "total 0") {
+				hasResultOutput = true
+			}
+		}
+		return hasCommand && hasResultOutput
+	})
+}
+
+func TestAuditRecorderSplitsCRLFAndPastedCommands(t *testing.T) {
+	sm := &fakeSessionManager{session: testSession()}
+	connector := &fakeConnector{}
+	svc := newTestService(sm, connector, time.Second)
+	owner, err := svc.Attach(t.Context(), "sess-1", "start", "owner-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if runtime, ok := svc.runtime("sess-1"); ok {
+			runtime.Close(nil)
+		}
+	}()
+
+	if err := owner.Handle(protocol.Packet{Type: protocol.Input, Data: []byte("ls -lrta\r\necho \"test\"\r\n")}); err != nil {
+		t.Fatal(err)
+	}
+
+	waitFor(t, func() bool {
+		sm.mu.Lock()
+		defer sm.mu.Unlock()
+		seen := make(map[string]bool)
+		for _, record := range sm.auditRecords {
+			if record.RecordType == model.AuditRecordCommand {
+				seen[record.CommandText] = true
+			}
+		}
+		return seen["ls -lrta"] && seen[`echo "test"`]
+	})
+}
+
 func TestAuditRecorderHandlesControlKeysAndObserverDoesNotCaptureInput(t *testing.T) {
 	sm := &fakeSessionManager{session: testSession()}
 	connector := &fakeConnector{}
@@ -531,7 +613,7 @@ func TestAuditRecorderHandlesControlKeysAndObserverDoesNotCaptureInput(t *testin
 			if record.RecordType == model.AuditRecordCommand && record.CommandText == "echo safe" {
 				hasCommand = true
 			}
-			if record.RecordType == model.AuditRecordControl {
+			if record.RecordType == model.AuditRecordControl && record.CommandID != "" {
 				hasControl = true
 			}
 			if record.CommandText == "whoami" {
@@ -539,6 +621,41 @@ func TestAuditRecorderHandlesControlKeysAndObserverDoesNotCaptureInput(t *testin
 			}
 		}
 		return hasCommand && hasControl
+	})
+}
+
+func TestAuditRecorderCapturesSessionLifecycleEvents(t *testing.T) {
+	sm := &fakeSessionManager{session: testSession()}
+	svc := newTestService(sm, &fakeConnector{}, time.Second)
+	owner, err := svc.Attach(t.Context(), "sess-1", "start", "owner-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if runtime, ok := svc.runtime("sess-1"); ok {
+			runtime.Close(nil)
+		}
+	}()
+	observer, err := svc.Attach(t.Context(), "sess-1", "observe", "observer-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	observer.Close()
+	owner.Close()
+
+	waitFor(t, func() bool {
+		sm.mu.Lock()
+		defer sm.mu.Unlock()
+		seen := make(map[string]bool)
+		for _, record := range sm.auditRecords {
+			if record.RecordType == model.AuditRecordSessionEvent {
+				seen[record.CommandText] = true
+			}
+		}
+		return seen["owner attached"] &&
+			seen["observer attached"] &&
+			seen["observer detached"] &&
+			seen["owner detached"]
 	})
 }
 

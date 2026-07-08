@@ -86,7 +86,9 @@ capture is best-effort because the SSH session is a raw PTY: printable owner
 input is buffered until Enter, basic edit controls such as Backspace, Ctrl-U,
 Ctrl-W, and Ctrl-C are interpreted, and observer input is never audited because
 observers cannot write. PTY stdout/stderr chunks are stored as output records
-linked to the most recent submitted command when possible.
+linked to the most recent submitted command when possible. Matched interactive
+terminal echo of owner input is treated as command echo and is not retained as
+output.
 
 Audit appends are batched with a bounded queue and timeout. Append failures or
 Audit Service outages emit metadata-only logs/metrics and do not break live

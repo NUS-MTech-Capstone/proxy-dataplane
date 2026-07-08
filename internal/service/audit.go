@@ -30,10 +30,12 @@ type AuditRecorder struct {
 
 	mu             sync.Mutex
 	line           []rune
+	expectedEcho   []byte
 	commandCounter int64
 	currentCommand string
 	disabled       bool
 	escape         bool
+	lastInputCR    bool
 }
 
 func NewAuditRecorder(service *Service, session model.Session) *AuditRecorder {
@@ -63,19 +65,33 @@ func (r *AuditRecorder) RecordOwnerInput(data []byte) {
 		switch ch {
 		case '\x1b':
 			r.escape = true
-		case '\r', '\n':
+			r.lastInputCR = false
+		case '\r':
+			r.expectedEcho = append(r.expectedEcho, '\r', '\n')
 			r.submitCommandLocked()
+			r.lastInputCR = true
+		case '\n':
+			if !r.lastInputCR {
+				r.expectedEcho = append(r.expectedEcho, '\r', '\n')
+			}
+			r.submitCommandLocked()
+			r.lastInputCR = false
 		case '\b', '\x7f':
 			if len(r.line) > 0 {
 				r.line = r.line[:len(r.line)-1]
 			}
+			r.expectedEcho = append(r.expectedEcho, '\b', ' ', '\b')
+			r.lastInputCR = false
 		case '\x15':
 			r.line = nil
+			r.lastInputCR = false
 		case '\x17':
 			r.removeWordLocked()
+			r.lastInputCR = false
 		case '\x03':
 			commandID := r.currentCommand
 			r.line = nil
+			r.lastInputCR = false
 			r.enqueueLocked(model.AppendSessionAuditRecord{
 				RecordType: model.AuditRecordControl,
 				CommandID:  commandID,
@@ -84,7 +100,9 @@ func (r *AuditRecorder) RecordOwnerInput(data []byte) {
 		default:
 			if unicode.IsPrint(ch) {
 				r.line = append(r.line, ch)
+				r.expectedEcho = append(r.expectedEcho, string(ch)...)
 			}
+			r.lastInputCR = false
 		}
 	}
 }
@@ -96,6 +114,10 @@ func (r *AuditRecorder) RecordOutput(data []byte) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if r.disabled {
+		return
+	}
+	data = r.stripExpectedEchoLocked(data)
+	if len(data) == 0 {
 		return
 	}
 	r.enqueueLocked(model.AppendSessionAuditRecord{
@@ -154,6 +176,22 @@ func (r *AuditRecorder) removeWordLocked() {
 	for len(r.line) > 0 && !unicode.IsSpace(r.line[len(r.line)-1]) {
 		r.line = r.line[:len(r.line)-1]
 	}
+}
+
+func (r *AuditRecorder) stripExpectedEchoLocked(data []byte) []byte {
+	for len(data) > 0 && len(r.expectedEcho) > 0 {
+		if data[0] == r.expectedEcho[0] {
+			data = data[1:]
+			r.expectedEcho = r.expectedEcho[1:]
+			continue
+		}
+		if r.expectedEcho[0] == '\r' && data[0] == '\n' {
+			r.expectedEcho = r.expectedEcho[1:]
+			continue
+		}
+		break
+	}
+	return data
 }
 
 func (r *AuditRecorder) enqueueLocked(record model.AppendSessionAuditRecord) {

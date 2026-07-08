@@ -68,7 +68,7 @@ func (r *Runtime) Start() {
 	}()
 }
 
-func (r *Runtime) Attach(mode, userID string) (*Attachment, error) {
+func (r *Runtime) Attach(mode, userID, event string) (*Attachment, error) {
 	if mode != "owner" && mode != "observer" {
 		return nil, errors.New("attachment mode must be owner or observer")
 	}
@@ -102,8 +102,11 @@ func (r *Runtime) Attach(mode, userID string) (*Attachment, error) {
 	if len(scrollback) > 0 {
 		attachment.send(protocol.Packet{Type: protocol.Output, Data: scrollback})
 	}
-	r.audit.RecordSessionEvent(mode + " attached")
-	r.Broadcast(protocol.Packet{Type: protocol.SessionEvent, Data: []byte(mode + " attached")})
+	if event == "" {
+		event = mode + " attached"
+	}
+	r.audit.RecordSessionEvent(event)
+	r.Broadcast(protocol.Packet{Type: protocol.SessionEvent, Data: []byte(event)})
 	r.broadcastAttachmentSnapshot()
 	return attachment, nil
 }

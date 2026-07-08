@@ -93,9 +93,11 @@ func (r *AuditRecorder) RecordOwnerInput(data []byte) {
 			r.line = nil
 			r.lastInputCR = false
 			r.enqueueLocked(model.AppendSessionAuditRecord{
-				RecordType: model.AuditRecordControl,
-				CommandID:  commandID,
-				CreatedAt:  time.Now().UTC().Format(time.RFC3339Nano),
+				RecordType:  model.AuditRecordControl,
+				CommandID:   commandID,
+				CommandText: "Ctrl-C",
+				CreatedAt:   time.Now().UTC().Format(time.RFC3339Nano),
+				ByteCount:   len("Ctrl-C"),
 			})
 		default:
 			if unicode.IsPrint(ch) {

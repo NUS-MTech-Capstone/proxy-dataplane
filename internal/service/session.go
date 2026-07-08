@@ -85,7 +85,14 @@ func (s *Service) Attach(ctx context.Context, sessionID, token, userID string) (
 		if !ok {
 			return nil, ErrRuntimeNotFound
 		}
-		return runtime.Attach(access.Claims.Mode, access.Claims.UserID)
+		event := access.Claims.Mode + " attached"
+		if access.Claims.Action == "rejoin" {
+			event = "owner rejoined"
+		}
+		if access.Claims.Action == "observe" {
+			event = "observer joined"
+		}
+		return runtime.Attach(access.Claims.Mode, access.Claims.UserID, event)
 	default:
 		return nil, errors.New("unsupported session action")
 	}
@@ -124,7 +131,7 @@ func (s *Service) startRuntime(ctx context.Context, access Access) (*Attachment,
 	s.runtimes[access.Session.SessionID] = runtime
 	s.mu.Unlock()
 	runtime.Start()
-	attachment, err := runtime.Attach("owner", access.Claims.UserID)
+	attachment, err := runtime.Attach("owner", access.Claims.UserID, "session started")
 	if err != nil {
 		runtime.Close(err)
 		return nil, err

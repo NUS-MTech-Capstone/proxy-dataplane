@@ -613,7 +613,7 @@ func TestAuditRecorderHandlesControlKeysAndObserverDoesNotCaptureInput(t *testin
 			if record.RecordType == model.AuditRecordCommand && record.CommandText == "echo safe" {
 				hasCommand = true
 			}
-			if record.RecordType == model.AuditRecordControl && record.CommandID != "" {
+			if record.RecordType == model.AuditRecordControl && record.CommandID != "" && record.CommandText == "Ctrl-C" {
 				hasControl = true
 			}
 			if record.CommandText == "whoami" {
@@ -642,6 +642,11 @@ func TestAuditRecorderCapturesSessionLifecycleEvents(t *testing.T) {
 	}
 	observer.Close()
 	owner.Close()
+	rejoined, err := svc.Attach(t.Context(), "sess-1", "rejoin", "owner-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	rejoined.Close()
 
 	waitFor(t, func() bool {
 		sm.mu.Lock()
@@ -652,10 +657,11 @@ func TestAuditRecorderCapturesSessionLifecycleEvents(t *testing.T) {
 				seen[record.CommandText] = true
 			}
 		}
-		return seen["owner attached"] &&
-			seen["observer attached"] &&
+		return seen["session started"] &&
+			seen["observer joined"] &&
 			seen["observer detached"] &&
-			seen["owner detached"]
+			seen["owner detached"] &&
+			seen["owner rejoined"]
 	})
 }
 

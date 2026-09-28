@@ -17,6 +17,7 @@ SSH_PRIVATE_KEY_PEM="$(cat ~/.ssh/id_ed25519)" \
 SSH_CONNECT_TIMEOUT=10s \
 SSH_REJOIN_GRACE=5m \
 PROXY_DATAPLANE_PUBLIC_URL=ws://localhost:8083 \
+WEBSOCKET_ALLOWED_ORIGINS=http://localhost:4200 \
 MAX_SESSIONS=50 \
 go run ./cmd/server
 ```
@@ -105,6 +106,19 @@ forwards `x-amzn-oidc-data`. The dataplane parses the `sub` claim and requires
 it to match the session's `userId`. When ALB headers are missing on the
 WebSocket upgrade, the signed STS session token is validated instead and its
 `sub` claim is used. `GET /healthz` remains unauthenticated.
+
+Browser WebSocket upgrades must send an `Origin` that exactly matches one of
+the comma-separated `WEBSOCKET_ALLOWED_ORIGINS`. A rejected or malformed
+origin receives `403` before token validation or session lookup. Requests
+without `Origin` remain available to non-browser clients. When the setting is
+empty, the allowed HTTP(S) origin is derived from
+`PROXY_DATAPLANE_PUBLIC_URL` (`wss` becomes `https`); localhost deployments
+also allow the standard Angular development origins. Production should set the
+value explicitly.
+
+HTTP responses before an upgrade use `Cache-Control: no-store`, disable MIME
+sniffing and framing, and apply `Referrer-Policy: no-referrer`. The dataplane
+does not emit CORS allow headers.
 
 The WebSocket endpoint accepts the session token either as:
 

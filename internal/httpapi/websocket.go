@@ -16,6 +16,10 @@ func (s *Server) ws(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
+	if !s.webSocketOriginAllowed(r.Header.Get("Origin")) {
+		writeError(w, http.StatusForbidden, "websocket origin is not allowed")
+		return
+	}
 	token := bearerToken(r.Header.Get("Authorization"))
 	if token == "" {
 		token = r.URL.Query().Get("token")

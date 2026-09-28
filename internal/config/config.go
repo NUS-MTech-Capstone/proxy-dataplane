@@ -3,8 +3,10 @@ package config
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"net/url"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -28,6 +30,7 @@ type Config struct {
 	HeartbeatInterval     time.Duration
 	AutomationTimeout     time.Duration
 	AutomationOutputBytes int
+	WebSocketOrigins      []string
 }
 
 func Load() Config {
@@ -42,6 +45,7 @@ func Load() Config {
 	operationsURL := os.Getenv("PROXY_DATAPLANE_OPERATIONS_URL")
 	port := env("PORT", "8083")
 	podIP := env("POD_IP", "127.0.0.1")
+	publicURL := env("PROXY_DATAPLANE_PUBLIC_URL", "ws://localhost:8083")
 	if operationsURL == "" {
 		operationsURL = "http://" + podIP + ":" + port
 	}
@@ -60,7 +64,7 @@ func Load() Config {
 		SSHConnectTimeout:     durationEnv("SSH_CONNECT_TIMEOUT", 10*time.Second),
 		SSHRejoinGrace:        durationEnv("SSH_REJOIN_GRACE", 5*time.Minute),
 		ScrollbackBytes:       scrollbackBytes,
-		PublicURL:             env("PROXY_DATAPLANE_PUBLIC_URL", "ws://localhost:8083"),
+		PublicURL:             publicURL,
 		OperationsURL:         operationsURL,
 		PodID:                 env("POD_ID", hostname()),
 		PodIP:                 podIP,
@@ -69,7 +73,50 @@ func Load() Config {
 		HeartbeatInterval:     5 * time.Second,
 		AutomationTimeout:     durationEnv("AUTOMATION_OPERATION_TIMEOUT", 30*time.Second),
 		AutomationOutputBytes: automationOutputBytes,
+		WebSocketOrigins:      websocketOrigins(publicURL, os.Getenv("WEBSOCKET_ALLOWED_ORIGINS")),
 	}
+}
+
+func websocketOrigins(publicURL, configured string) []string {
+	if strings.TrimSpace(configured) != "" {
+		return uniqueOrigins(strings.Split(configured, ","))
+	}
+
+	parsed, err := url.Parse(publicURL)
+	if err != nil || parsed.Host == "" {
+		return nil
+	}
+	scheme := ""
+	switch strings.ToLower(parsed.Scheme) {
+	case "ws":
+		scheme = "http"
+	case "wss":
+		scheme = "https"
+	default:
+		return nil
+	}
+	origins := []string{scheme + "://" + parsed.Host}
+	if hostname := strings.ToLower(parsed.Hostname()); hostname == "localhost" || hostname == "127.0.0.1" || hostname == "::1" {
+		origins = append(origins, "http://localhost:4200", "http://127.0.0.1:4200")
+	}
+	return uniqueOrigins(origins)
+}
+
+func uniqueOrigins(values []string) []string {
+	seen := make(map[string]struct{}, len(values))
+	origins := make([]string, 0, len(values))
+	for _, value := range values {
+		origin := strings.TrimSpace(value)
+		if origin == "" {
+			continue
+		}
+		if _, ok := seen[origin]; ok {
+			continue
+		}
+		seen[origin] = struct{}{}
+		origins = append(origins, origin)
+	}
+	return origins
 }
 
 func durationEnv(key string, fallback time.Duration) time.Duration {

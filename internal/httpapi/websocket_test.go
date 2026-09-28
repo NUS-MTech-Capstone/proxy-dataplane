@@ -34,6 +34,48 @@ func TestWebSocketEndpointRejectsBadPathAndMissingToken(t *testing.T) {
 	}
 }
 
+func TestWebSocketOriginPolicy(t *testing.T) {
+	server := New(nil, "https://api.ddm.keiyam.me", "http://localhost:4200/")
+	tests := []struct {
+		name   string
+		origin string
+		status int
+	}{
+		{name: "configured production origin", origin: "https://api.ddm.keiyam.me", status: http.StatusUnauthorized},
+		{name: "normalized configured origin", origin: "http://localhost:4200", status: http.StatusUnauthorized},
+		{name: "origin-less non-browser client", status: http.StatusUnauthorized},
+		{name: "foreign origin", origin: "https://evil.example", status: http.StatusForbidden},
+		{name: "malformed origin", origin: "://bad-origin", status: http.StatusForbidden},
+		{name: "origin with path", origin: "https://api.ddm.keiyam.me/path", status: http.StatusForbidden},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			recorder := httptest.NewRecorder()
+			request := httptest.NewRequest(http.MethodGet, "/sessions/sess-1/ws?apiVersion=1", nil)
+			if tt.origin != "" {
+				request.Header.Set("Origin", tt.origin)
+			}
+			server.ServeHTTP(recorder, request)
+			if recorder.Code != tt.status {
+				t.Fatalf("status = %d, want %d", recorder.Code, tt.status)
+			}
+		})
+	}
+}
+
+func TestWebSocketRejectsOriginBeforeAuthentication(t *testing.T) {
+	server := New(nil, "https://api.ddm.keiyam.me")
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/sessions/sess-1/ws?token=secret&apiVersion=1", nil)
+	request.Header.Set("Origin", "null")
+
+	server.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want %d", recorder.Code, http.StatusForbidden)
+	}
+}
+
 func TestParseSessionIDAndBearerToken(t *testing.T) {
 	if id, ok := parseSessionID("/sessions/sess-1/ws"); !ok || id != "sess-1" {
 		t.Fatalf("parseSessionID() = %q/%v", id, ok)

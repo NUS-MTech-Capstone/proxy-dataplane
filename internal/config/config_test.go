@@ -21,6 +21,23 @@ func TestLoadAppliesDefaultsAndDerivedOperationsURL(t *testing.T) {
 		cfg.SSHKeyProvider != "env" || cfg.PublicURL != "ws://localhost:8083" {
 		t.Fatalf("defaults = %#v", cfg)
 	}
+	if got := strings.Join(cfg.WebSocketOrigins, ","); got != "http://localhost:8083,http://localhost:4200,http://127.0.0.1:4200" {
+		t.Fatalf("WebSocketOrigins = %q", got)
+	}
+}
+
+func TestLoadWebSocketOrigins(t *testing.T) {
+	t.Setenv("PROXY_DATAPLANE_PUBLIC_URL", "wss://api.ddm.keiyam.me")
+	cfg := Load()
+	if got := strings.Join(cfg.WebSocketOrigins, ","); got != "https://api.ddm.keiyam.me" {
+		t.Fatalf("derived WebSocketOrigins = %q", got)
+	}
+
+	t.Setenv("WEBSOCKET_ALLOWED_ORIGINS", "https://one.example, https://two.example,https://one.example")
+	cfg = Load()
+	if got := strings.Join(cfg.WebSocketOrigins, ","); got != "https://one.example,https://two.example" {
+		t.Fatalf("configured WebSocketOrigins = %q", got)
+	}
 }
 
 func TestLoadParsesOverridesAndFallbacks(t *testing.T) {

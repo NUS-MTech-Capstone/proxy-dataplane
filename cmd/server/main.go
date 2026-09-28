@@ -64,7 +64,7 @@ func main() {
 	slog.Info("server_listening", "addr", addr, "podId", cfg.PodID, "instanceId", cfg.InstanceID)
 	server := &http.Server{
 		Addr:              addr,
-		Handler:           httpapi.New(svc),
+		Handler:           httpapi.New(svc, cfg.WebSocketOrigins...),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       15 * time.Second,
 		WriteTimeout:      30 * time.Second,

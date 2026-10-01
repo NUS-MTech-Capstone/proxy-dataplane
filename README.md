@@ -147,6 +147,7 @@ WebSocket messages are binary. The first byte is the packet type:
 0x02 error
 0x07 session event
 0x10 resize: uint16 columns + uint16 rows, big endian
+0x11 heartbeat: empty payload
 0x12 detach WebSocket
 0x18 terminate session
 ```
@@ -165,7 +166,9 @@ Session event packets may contain plain UTF-8 lifecycle text such as
 The observer list is live runtime state for the active dataplane process; it is
 not persisted in Session Manager. Observer resize packets are accepted as a
 no-op so read-only viewers do not receive writer-only errors during terminal
-initialization.
+initialization. Empty heartbeat packets are accepted for owner and observer
+attachments, do not touch the SSH shell or audit stream, and exist only to keep
+the authenticated WebSocket transport alive.
 
 ## API Specifications
 

@@ -13,6 +13,7 @@ const (
 	Error            Type = 0x02
 	SessionEvent     Type = 0x07
 	Resize           Type = 0x10
+	Heartbeat        Type = 0x11
 	ClientClose      Type = 0x12
 	ClientEndSession Type = 0x18
 )

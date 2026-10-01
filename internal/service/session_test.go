@@ -430,6 +430,15 @@ func TestStartRejoinObserveAndScrollback(t *testing.T) {
 	if err := observer.Handle(protocol.Packet{Type: protocol.Resize, Data: []byte{0, 100, 0, 30}}); err != nil {
 		t.Fatalf("observer resize error = %v, want nil", err)
 	}
+	if err := rejoined.Handle(protocol.Packet{Type: protocol.Heartbeat}); err != nil {
+		t.Fatalf("owner heartbeat error = %v, want nil", err)
+	}
+	if err := observer.Handle(protocol.Packet{Type: protocol.Heartbeat}); err != nil {
+		t.Fatalf("observer heartbeat error = %v, want nil", err)
+	}
+	if err := observer.Handle(protocol.Packet{Type: protocol.Heartbeat, Data: []byte("unexpected")}); err == nil {
+		t.Fatal("heartbeat payload was accepted")
+	}
 	gotScrollback, gotSnapshot := outputAndEventSnapshotContains(t, rejoined, "persistent output", []string{"observer-1"})
 	if !gotScrollback {
 		t.Fatal("rejoined owner did not receive scrollback")

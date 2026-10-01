@@ -135,6 +135,11 @@ func (a *Attachment) Handle(packet protocol.Packet) error {
 			return err
 		}
 		return a.runtime.shell.Resize(cols, rows)
+	case protocol.Heartbeat:
+		if len(packet.Data) != 0 {
+			return errors.New("heartbeat packet must not contain data")
+		}
+		return nil
 	case protocol.ClientClose:
 		a.Close()
 		return nil

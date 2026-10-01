@@ -24,6 +24,8 @@ channels:
         $ref: "#/components/messages/SessionEventPacket"
       resize:
         $ref: "#/components/messages/ResizePacket"
+      heartbeat:
+        $ref: "#/components/messages/HeartbeatPacket"
       detach:
         $ref: "#/components/messages/DetachPacket"
       endSession:
@@ -36,6 +38,7 @@ operations:
     messages:
       - $ref: "#/channels/terminalSession/messages/input"
       - $ref: "#/channels/terminalSession/messages/resize"
+      - $ref: "#/channels/terminalSession/messages/heartbeat"
       - $ref: "#/channels/terminalSession/messages/detach"
       - $ref: "#/channels/terminalSession/messages/endSession"
   dataplaneToClient:
@@ -76,6 +79,12 @@ components:
       name: resize
       title: Resize packet
       summary: First byte 0x10 followed by uint16 columns and uint16 rows in big-endian order. Owners resize the PTY; observer resize packets are ignored.
+      payload:
+        $ref: "#/components/schemas/BinaryPacket"
+    HeartbeatPacket:
+      name: heartbeat
+      title: Heartbeat packet
+      summary: First byte 0x11 with no payload. Accepted for owner and observer attachments without affecting SSH or audit state.
       payload:
         $ref: "#/components/schemas/BinaryPacket"
     DetachPacket:

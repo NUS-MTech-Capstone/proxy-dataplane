@@ -8,7 +8,7 @@ import (
 )
 
 func TestOpenAPISpecServed(t *testing.T) {
-	server := New(nil)
+	server := New(nil, nil)
 	response := httptest.NewRecorder()
 	server.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/openapi.yaml", nil))
 	if response.Code != http.StatusOK {
@@ -23,7 +23,7 @@ func TestOpenAPISpecServed(t *testing.T) {
 }
 
 func TestAsyncAPISpecServed(t *testing.T) {
-	server := New(nil)
+	server := New(nil, nil)
 	response := httptest.NewRecorder()
 	server.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/asyncapi.yaml", nil))
 	if response.Code != http.StatusOK {

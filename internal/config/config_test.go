@@ -70,3 +70,19 @@ func TestRandomIDAndEnvHelpers(t *testing.T) {
 		t.Fatalf("randomID() = %q", id)
 	}
 }
+
+func TestIdentitySettingsAndIssuerDerivation(t *testing.T) {
+	t.Setenv("AWS_REGION", "ap-southeast-1")
+	t.Setenv("ALB_ARN", "configured-alb")
+	t.Setenv("COGNITO_CLIENT_ID", "configured-client")
+	t.Setenv("COGNITO_USER_POOL_ID", "ap-southeast-1_fixture")
+	t.Setenv("COGNITO_ISSUER", "")
+	cfg := Load()
+	if cfg.CognitoIssuer != "https://cognito-idp.ap-southeast-1.amazonaws.com/ap-southeast-1_fixture" || cfg.ALBARN != "configured-alb" || cfg.CognitoClientID != "configured-client" {
+		t.Fatal("identity settings not loaded")
+	}
+	t.Setenv("COGNITO_ISSUER", "https://explicit-issuer")
+	if Load().CognitoIssuer != "https://explicit-issuer" {
+		t.Fatal("explicit issuer was not preserved")
+	}
+}

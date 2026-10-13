@@ -18,6 +18,9 @@ type Config struct {
 	SSHKeyProvider        string
 	SSHPrivateKeyPEM      string
 	AWSRegion             string
+	ALBARN                string
+	CognitoIssuer         string
+	CognitoClientID       string
 	SSHConnectTimeout     time.Duration
 	SSHRejoinGrace        time.Duration
 	ScrollbackBytes       int
@@ -34,6 +37,10 @@ type Config struct {
 }
 
 func Load() Config {
+	issuer := os.Getenv("COGNITO_ISSUER")
+	if issuer == "" && os.Getenv("COGNITO_USER_POOL_ID") != "" {
+		issuer = "https://cognito-idp." + os.Getenv("AWS_REGION") + ".amazonaws.com/" + os.Getenv("COGNITO_USER_POOL_ID")
+	}
 	maxSessions, err := strconv.Atoi(env("MAX_SESSIONS", "50"))
 	if err != nil {
 		maxSessions = 50
@@ -61,6 +68,9 @@ func Load() Config {
 		SSHKeyProvider:        env("SSH_KEY_PROVIDER", "env"),
 		SSHPrivateKeyPEM:      os.Getenv("SSH_PRIVATE_KEY_PEM"),
 		AWSRegion:             os.Getenv("AWS_REGION"),
+		ALBARN:                os.Getenv("ALB_ARN"),
+		CognitoIssuer:         issuer,
+		CognitoClientID:       os.Getenv("COGNITO_CLIENT_ID"),
 		SSHConnectTimeout:     durationEnv("SSH_CONNECT_TIMEOUT", 10*time.Second),
 		SSHRejoinGrace:        durationEnv("SSH_REJOIN_GRACE", 5*time.Minute),
 		ScrollbackBytes:       scrollbackBytes,

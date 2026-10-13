@@ -23,6 +23,14 @@ import (
 func main() {
 	observability.ConfigureLogger("proxy-dataplane")
 	cfg := config.Load()
+	identityVerifier, err := httpapi.NewALBJWTVerifier(httpapi.ALBJWTVerifierConfig{
+		Region: cfg.AWSRegion, ALBARN: cfg.ALBARN,
+		Issuer: cfg.CognitoIssuer, ClientID: cfg.CognitoClientID,
+	})
+	if err != nil {
+		slog.Error("initialize identity verifier failed", "error", err)
+		os.Exit(1)
+	}
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 	pod := model.ProxyPod{
@@ -64,7 +72,7 @@ func main() {
 	slog.Info("server_listening", "addr", addr, "podId", cfg.PodID, "instanceId", cfg.InstanceID)
 	server := &http.Server{
 		Addr:              addr,
-		Handler:           httpapi.New(svc, cfg.WebSocketOrigins...),
+		Handler:           httpapi.New(svc, identityVerifier, cfg.WebSocketOrigins...),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       15 * time.Second,
 		WriteTimeout:      30 * time.Second,

@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"errors"
 	"io"
 	"log/slog"
 	"net/http"
@@ -8,6 +9,7 @@ import (
 
 	"github.com/NUS-MTech-Capstone/access-proxy/internal/observability"
 	"github.com/NUS-MTech-Capstone/access-proxy/internal/protocol"
+	"github.com/NUS-MTech-Capstone/access-proxy/internal/service"
 )
 
 func (s *Server) ws(w http.ResponseWriter, r *http.Request) {
@@ -29,11 +31,7 @@ func (s *Server) ws(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	cognitoSubject := ""
-	if user, ok := cognitoUserFromContext(r.Context()); ok {
-		cognitoSubject = user.Subject
-	}
-	userID, err := s.svc.ResolveSessionUserID(r.Context(), sessionID, token, cognitoSubject)
+	user, err := cognitoUserFromALBHeaders(r, s.identityVerifier)
 	if err != nil {
 		slog.WarnContext(r.Context(), "SessionAttachAuthFailed",
 			"requestId", observability.RequestID(r.Context()),
@@ -44,6 +42,7 @@ func (s *Server) ws(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	userID := user.Subject
 	attachment, err := s.svc.Attach(r.Context(), sessionID, token, userID)
 	if err != nil {
 		slog.WarnContext(r.Context(), "SessionAttachFailed",
@@ -52,7 +51,11 @@ func (s *Server) ws(w http.ResponseWriter, r *http.Request) {
 			"userId", userID,
 			"error", err,
 		)
-		writeError(w, http.StatusConflict, err.Error())
+		if errors.Is(err, service.ErrUnauthorized) {
+			writeError(w, http.StatusUnauthorized, "invalid session capability")
+		} else {
+			writeError(w, http.StatusConflict, err.Error())
+		}
 		return
 	}
 	conn, err := upgrade(w, r)

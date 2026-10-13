@@ -2,113 +2,190 @@ openapi: 3.1.0
 info:
   title: DenDenMushi Proxy Dataplane API
   version: 0.1.0
-  description: Runtime API for dataplane health, terminal WebSocket upgrade, and automation operations. Business endpoints require the `x-api-version: 1` header; browser WebSocket upgrades may use `apiVersion=1` in the query string because browsers cannot set custom WebSocket headers. Probe, OpenAPI, and AsyncAPI endpoints are exempt.
+  description: 'Runtime API for dataplane health, terminal WebSocket upgrade, and automation operations. Business
+    endpoints require the `x-api-version: 1` header; browser WebSocket upgrades may use `apiVersion=1` in the query
+    string because browsers cannot set custom WebSocket headers. Probe, OpenAPI, and AsyncAPI endpoints are exempt.'
 servers:
-  - url: http://localhost:8083
+- url: https://api.ddm.keiyam.me
+  description: AWS dev public origin.
+- url: http://localhost:8083
+  description: Direct service address; public services are accessed through the authenticated ALB.
 paths:
   /healthz:
     get:
       summary: Liveness probe
       responses:
-        "200":
-          description: Service is running.
+        '200':
+          description: Successful response.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/HealthResponse"
+                $ref: '#/components/schemas/HealthResponse'
+      security: []
   /sessions/{sessionId}/ws:
     get:
       summary: Upgrade to a terminal WebSocket
-      description: Binary terminal packet protocol is documented in api/asyncapi.yaml and served from /asyncapi.yaml.
+      description: 'Binary terminal packet protocol is documented in api/asyncapi.yaml and served from /asyncapi.yaml.
+        Verified ALB identity and a matching STS session capability are both mandatory. Either x-api-version: 1
+        or apiVersion=1 is required. Origin checks may return 403; invalid upgrade negotiation returns a plain-text
+        400.'
       security:
-        - albCognito: []
-        - bearerAuth: []
+      - albCognito: []
+        albSubject: []
+        bearerAuth: []
+      - albCognito: []
+        albSubject: []
+        queryToken: []
       parameters:
-        - name: sessionId
-          in: path
-          required: true
-          schema:
-            type: string
-        - name: token
-          in: query
-          required: false
-          schema:
-            type: string
-          description: Session token fallback when Authorization cannot be supplied during WebSocket upgrade.
+      - name: sessionId
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: token
+        in: query
+        required: false
+        schema:
+          type: string
+        description: Session token fallback when Authorization cannot be supplied during WebSocket upgrade.
+      - name: x-api-version
+        in: header
+        required: false
+        schema:
+          type: string
+          enum:
+          - '1'
+        description: Either this header or apiVersion=1 is required.
+      - name: apiVersion
+        in: query
+        required: false
+        schema:
+          type: string
+          enum:
+          - '1'
+        description: Browser WebSocket alternative to the mandatory version header.
       responses:
-        "101":
+        '101':
           description: WebSocket upgrade accepted.
-        "401":
-          $ref: "#/components/responses/Error"
-        "409":
-          $ref: "#/components/responses/Error"
+        '401':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '400':
+          description: Missing/unsupported version; malformed upgrade negotiation may return text/plain.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+            text/plain:
+              schema:
+                type: string
+        '403':
+          $ref: '#/components/responses/Error'
   /automation/runs/{runId}/operations:
     post:
       summary: Execute a bounded automation operation
       security:
-        - bearerAuth: []
+      - bearerAuth: []
       parameters:
-        - name: runId
-          in: path
-          required: true
-          schema:
-            type: string
+      - name: runId
+        in: path
+        required: true
+        schema:
+          type: string
+      - $ref: '#/components/parameters/APIVersion'
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/OperationRequest"
+              $ref: '#/components/schemas/OperationRequest'
       responses:
-        "200":
+        '200':
           description: Operation result.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/OperationResult"
-        "400":
-          $ref: "#/components/responses/Error"
-        "401":
-          $ref: "#/components/responses/Error"
-        "409":
-          $ref: "#/components/responses/Error"
+                $ref: '#/components/schemas/OperationResult'
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+  /openapi.yaml:
+    get:
+      summary: Checked-in OpenAPI specification
+      responses:
+        '200':
+          description: Exact api/openapi.yaml bytes.
+          content:
+            application/yaml:
+              schema:
+                type: string
+      security: []
+  /asyncapi.yaml:
+    get:
+      summary: Terminal packet protocol specification
+      security: []
+      responses:
+        '200':
+          description: Checked-in AsyncAPI YAML.
+          content:
+            application/yaml:
+              schema:
+                type: string
 components:
   securitySchemes:
     albCognito:
       type: apiKey
       in: header
       name: x-amzn-oidc-data
+      description: ALB-injected ES256 JWT; signature, expiry, signer ARN, issuer and client are verified. Browser
+        clients authenticate through the ALB session cookie.
     bearerAuth:
       type: http
       scheme: bearer
+    albSubject:
+      type: apiKey
+      in: header
+      name: x-amzn-oidc-identity
+      description: ALB-injected subject; must equal the signed sub claim.
+    queryToken:
+      type: apiKey
+      in: query
+      name: token
   responses:
     Error:
-      description: Structured error response.
+      description: Invalid request, authorization denial, or service failure; the HTTP status identifies the category.
       content:
         application/json:
           schema:
-            $ref: "#/components/schemas/ErrorResponse"
+            $ref: '#/components/schemas/ErrorResponse'
   schemas:
     HealthResponse:
       type: object
-      required: [status]
       properties:
         status:
           type: string
-          example: ok
+      required:
+      - status
     ErrorResponse:
       type: object
-      required: [error]
       properties:
         error:
           type: object
-          required: [message]
           properties:
             message:
               type: string
+          required:
+          - message
+      required:
+      - error
     OperationRequest:
       type: object
-      required: [operationId]
+      required:
+      - operationId
       additionalProperties: false
       properties:
         operationId:
@@ -121,7 +198,11 @@ components:
           type: string
     OperationResult:
       type: object
-      required: [operationId, stdout, stderr, exitCode]
+      required:
+      - operationId
+      - stdout
+      - stderr
+      - exitCode
       properties:
         operationId:
           type: string
@@ -131,3 +212,13 @@ components:
           type: string
         exitCode:
           type: integer
+  parameters:
+    APIVersion:
+      name: x-api-version
+      in: header
+      required: true
+      schema:
+        type: string
+        enum:
+        - '1'
+      description: Required on business endpoints. Missing or unsupported values return 400.

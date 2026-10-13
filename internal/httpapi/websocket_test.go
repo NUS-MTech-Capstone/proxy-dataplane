@@ -12,7 +12,7 @@ import (
 )
 
 func TestWebSocketEndpointRejectsBadPathAndMissingToken(t *testing.T) {
-	server := New(nil)
+	server := New(nil, nil)
 	tests := []struct {
 		path      string
 		useHeader bool
@@ -35,7 +35,7 @@ func TestWebSocketEndpointRejectsBadPathAndMissingToken(t *testing.T) {
 }
 
 func TestWebSocketOriginPolicy(t *testing.T) {
-	server := New(nil, "https://api.ddm.keiyam.me", "http://localhost:4200/")
+	server := New(nil, nil, "https://api.ddm.keiyam.me", "http://localhost:4200/")
 	tests := []struct {
 		name   string
 		origin string
@@ -64,7 +64,7 @@ func TestWebSocketOriginPolicy(t *testing.T) {
 }
 
 func TestWebSocketRejectsOriginBeforeAuthentication(t *testing.T) {
-	server := New(nil, "https://api.ddm.keiyam.me")
+	server := New(nil, nil, "https://api.ddm.keiyam.me")
 	recorder := httptest.NewRecorder()
 	request := httptest.NewRequest(http.MethodGet, "/sessions/sess-1/ws?token=secret&apiVersion=1", nil)
 	request.Header.Set("Origin", "null")
@@ -99,10 +99,13 @@ func TestWebSocketEndpointRejectsInvalidTokenDuringIdentityResolution(t *testing
 		model.ProxyPod{PodID: "pod-1", InstanceID: "instance-1"},
 		time.Hour, time.Minute, 1024,
 	)
-	server := New(svc)
+	identity := newSignedIdentityFixture(t)
+	server := New(svc, identity.verifier)
 	rec := httptest.NewRecorder()
 
-	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/sessions/sess-1/ws?token=bad&apiVersion=1", nil))
+	request := httptest.NewRequest(http.MethodGet, "/sessions/sess-1/ws?token=bad&apiVersion=1", nil)
+	identity.headers(t, request, nil)
+	server.ServeHTTP(rec, request)
 
 	if rec.Code != http.StatusUnauthorized {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusUnauthorized)
@@ -123,10 +126,13 @@ func TestWebSocketEndpointMapsAttachFailureToConflict(t *testing.T) {
 		model.ProxyPod{PodID: "pod-1", InstanceID: "instance-1"},
 		time.Hour, time.Minute, 1024,
 	)
-	server := New(svc)
+	identity := newSignedIdentityFixture(t)
+	server := New(svc, identity.verifier)
 	rec := httptest.NewRecorder()
 
-	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/sessions/sess-1/ws?token=token&apiVersion=1", nil))
+	request := httptest.NewRequest(http.MethodGet, "/sessions/sess-1/ws?token=token&apiVersion=1", nil)
+	identity.headers(t, request, nil)
+	server.ServeHTTP(rec, request)
 
 	if rec.Code != http.StatusConflict {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusConflict)

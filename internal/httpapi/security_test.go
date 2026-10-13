@@ -22,7 +22,7 @@ func TestSecurityHeadersMiddleware(t *testing.T) {
 
 func TestServerAddsSecurityHeadersToErrors(t *testing.T) {
 	recorder := httptest.NewRecorder()
-	New(nil).ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/sessions/session-1/ws?apiVersion=1", nil))
+	New(nil, nil).ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/sessions/session-1/ws?apiVersion=1", nil))
 	assertSecurityHeaders(t, recorder.Header())
 }
 

@@ -65,7 +65,7 @@ func (f automationExecutor) Execute(_ context.Context, _ model.AutomationClaims,
 }
 
 func TestOperationEndpointValidationAndSuccess(t *testing.T) {
-	server := New(newAutomationService(automationExecutor{}))
+	server := New(newAutomationService(automationExecutor{}), nil)
 	tests := []struct {
 		name   string
 		path   string
@@ -86,6 +86,7 @@ func TestOperationEndpointValidationAndSuccess(t *testing.T) {
 			req.Header.Set("Authorization", tt.auth)
 			req.Header.Set(apiVersionHeader, supportedAPIVersion)
 			server.ServeHTTP(rec, req)
+			assertContractResponse(t, req.Method, req.URL.String(), rec)
 			if rec.Code != tt.status {
 				t.Fatalf("status = %d, want %d, body=%s", rec.Code, tt.status, rec.Body.String())
 			}
@@ -94,13 +95,14 @@ func TestOperationEndpointValidationAndSuccess(t *testing.T) {
 }
 
 func TestOperationEndpointMapsServiceFailureToConflict(t *testing.T) {
-	server := New(newAutomationService(automationExecutor{err: errors.New("boom")}))
+	server := New(newAutomationService(automationExecutor{err: errors.New("boom")}), nil)
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/automation/runs/run-1/operations", strings.NewReader(`{"operationId":"health_check"}`))
 	req.Header.Set("Authorization", "Bearer token")
 	req.Header.Set(apiVersionHeader, supportedAPIVersion)
 
 	server.ServeHTTP(rec, req)
+	assertContractResponse(t, req.Method, req.URL.String(), rec)
 
 	if rec.Code != http.StatusConflict {
 		t.Fatalf("status = %d, want %d, body=%s", rec.Code, http.StatusConflict, rec.Body.String())

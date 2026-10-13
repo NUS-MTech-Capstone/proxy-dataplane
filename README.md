@@ -101,11 +101,19 @@ normal application logs. When Audit Service reports a truncated audit record,
 the dataplane stops sending further audit output for that session while the SSH
 session continues.
 
-The WebSocket endpoint expects AWS ALB Cognito authentication when the ALB
-forwards `x-amzn-oidc-data`. The dataplane parses the `sub` claim and requires
-it to match the session's `userId`. When ALB headers are missing on the
-WebSocket upgrade, the signed STS session token is validated instead and its
-`sub` claim is used. `GET /healthz` remains unauthenticated.
+Terminal upgrades require both a cryptographically verified ALB identity and an
+STS session capability. The verifier checks the ES256 signature against the
+regional ALB public key, expiry, signer ALB ARN, Cognito issuer and client ID.
+The signed `sub` must equal `x-amzn-oidc-identity`, the STS user and session
+ownership metadata. Missing or invalid identity returns 401 before session or
+SSH work; an STS token alone is insufficient.
+
+Startup requires `AWS_REGION`, `ALB_ARN`, `COGNITO_CLIENT_ID`, and either
+`COGNITO_ISSUER` or `COGNITO_USER_POOL_ID` (the issuer is derived from the pool
+and region). Deploy these settings before promoting the strict identity image.
+Check active sessions and allow them to finish before the Recreate rollout.
+Health and specification routes remain exempt. Automation operations retain
+their existing workload capability authentication.
 
 Browser WebSocket upgrades must send an `Origin` that exactly matches one of
 the comma-separated `WEBSOCKET_ALLOWED_ORIGINS`. A rejected or malformed
@@ -126,16 +134,16 @@ The WebSocket endpoint accepts the session token either as:
 Authorization: Bearer <token>
 ```
 
-or as `?token=<token>` for simple local testing.
+or as `?token=<token>` for browser WebSocket clients. Browser upgrades also
+use `apiVersion=1`; HTTP clients send `x-api-version: 1`.
 
 The session token must belong to the authenticated Cognito user. Its signed
 claims must match Session Manager metadata and include the target SSH address,
 username, credential secret ID, and pinned host public key.
 
-For direct local testing without an ALB, also provide a simulated
-`x-amzn-oidc-data` header containing a three-part JWT with a matching `sub`
-claim. The dataplane intentionally does not verify this JWT because production
-traffic must only reach it through the authenticated ALB.
+Local HTTP tests inject a verifier backed by signed P-256 fixtures and a local
+key endpoint. There is no runtime identity bypass or unsigned-header mode.
+Interactive testing uses the Cognito-authenticated ALB route.
 
 ## Terminal Protocol
 
@@ -193,3 +201,18 @@ upgrades may send `apiVersion=1` in the query string because browser
 should send `x-api-version: 1`.
 Successful probe request logs are suppressed; failed probe responses still emit
 request logs.
+
+## API contract verification
+
+`api/openapi.yaml` is the checked-in HTTP contract, served byte-for-byte at
+`GET /openapi.yaml`. CI validates it with `openapi-spec-validator==0.9.0`.
+Handler tests validate representative success and error responses against its
+schemas, including missing and unsupported API versions. Business HTTP calls
+require `x-api-version: 1`; the specification declares route exemptions and
+any transport-specific alternatives. Run the repository test suite when
+changing handlers or response models, and update the contract in the same PR.
+
+The Image workflow runs only after successful CI for a push to `main`. It builds
+the tested source SHA, retains that SHA as a traceability tag, and promotes the
+build's `sha256` digest through a Kubernetes PR. Promotion requires the digest;
+Argo CD deploys that immutable reference after the GitOps PR is merged.

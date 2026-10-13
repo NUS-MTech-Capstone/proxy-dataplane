@@ -11,13 +11,15 @@ import (
 
 type Server struct {
 	svc                     *service.Service
+	identityVerifier        IdentityVerifier
 	mux                     *http.ServeMux
 	webSocketAllowedOrigins map[string]struct{}
 }
 
-func New(svc *service.Service, webSocketAllowedOrigins ...string) *Server {
+func New(svc *service.Service, verifier IdentityVerifier, webSocketAllowedOrigins ...string) *Server {
 	s := &Server{
 		svc:                     svc,
+		identityVerifier:        verifier,
 		mux:                     http.NewServeMux(),
 		webSocketAllowedOrigins: make(map[string]struct{}, len(webSocketAllowedOrigins)),
 	}

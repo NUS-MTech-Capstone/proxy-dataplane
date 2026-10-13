@@ -3,11 +3,14 @@ package service
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 
 	"github.com/NUS-MTech-Capstone/access-proxy/internal/model"
 	"github.com/NUS-MTech-Capstone/access-proxy/internal/observability"
 )
+
+var ErrUnauthorized = errors.New("invalid session capability")
 
 var ErrOwnerMismatch = errors.New("session is owned by another proxy dataplane instance")
 var ErrUserMismatch = errors.New("authenticated user does not own the session")
@@ -21,29 +24,13 @@ type Access struct {
 	Claims  model.SessionClaims
 }
 
-// ResolveSessionUserID returns the Cognito subject from ALB headers when present,
-// otherwise from a validated STS session token. Some ALB WebSocket upgrades reach
-// the dataplane without x-amzn-oidc-data even though the browser session is valid
-// on /ddm API routes.
-func (s *Service) ResolveSessionUserID(
-	ctx context.Context,
-	sessionID, token string,
-	cognitoSubject string,
-) (string, error) {
-	if cognitoSubject != "" {
-		return cognitoSubject, nil
-	}
-	claims, err := s.sts.ValidateToken(ctx, sessionID, "", token)
-	if err != nil {
-		return "", err
-	}
-	return claims.UserID, nil
-}
-
 func (s *Service) AuthorizeSession(ctx context.Context, sessionID, token, userID string) (Access, error) {
+	if userID == "" {
+		return Access{}, ErrUserMismatch
+	}
 	claims, err := s.sts.ValidateToken(ctx, sessionID, userID, token)
 	if err != nil {
-		return Access{}, err
+		return Access{}, fmt.Errorf("%w: %w", ErrUnauthorized, err)
 	}
 	session, err := s.sm.GetSession(ctx, sessionID)
 	if err != nil {

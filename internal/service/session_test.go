@@ -348,25 +348,10 @@ func newTestService(sm *fakeSessionManager, connector *fakeConnector, grace time
 	)
 }
 
-func TestResolveSessionUserIDPrefersCognitoSubject(t *testing.T) {
+func TestAuthorizeSessionRequiresIndependentIdentity(t *testing.T) {
 	svc := newTestService(&fakeSessionManager{}, &fakeConnector{}, time.Second)
-	userID, err := svc.ResolveSessionUserID(t.Context(), "sess-1", "start", "alb-user")
-	if err != nil {
-		t.Fatalf("ResolveSessionUserID() error = %v", err)
-	}
-	if userID != "alb-user" {
-		t.Fatalf("userID = %q, want alb-user", userID)
-	}
-}
-
-func TestResolveSessionUserIDFallsBackToSessionToken(t *testing.T) {
-	svc := newTestService(&fakeSessionManager{}, &fakeConnector{}, time.Second)
-	userID, err := svc.ResolveSessionUserID(t.Context(), "sess-1", "start", "")
-	if err != nil {
-		t.Fatalf("ResolveSessionUserID() error = %v", err)
-	}
-	if userID != "owner-1" {
-		t.Fatalf("userID = %q, want owner-1", userID)
+	if _, err := svc.AuthorizeSession(t.Context(), "sess-1", "start", ""); !errors.Is(err, ErrUserMismatch) {
+		t.Fatalf("AuthorizeSession() error = %v, want missing identity denial", err)
 	}
 }
 

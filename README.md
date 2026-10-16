@@ -5,13 +5,18 @@ the assigned session.
 
 ## Run
 
-Start Session Manager and STS first, then:
+Start Session Manager, Audit Service and STS first. Supply the ALB/Cognito
+identity settings used by the authenticated access path:
 
 ```bash
 PORT=8083 \
 SESSION_MANAGER_URL=http://localhost:8081 \
 SESSION_AUDIT_URL=http://localhost:8085 \
 STS_URL=http://localhost:8082 \
+AWS_REGION=ap-southeast-1 \
+ALB_ARN=arn:aws:elasticloadbalancing:ap-southeast-1:123456789012:loadbalancer/app/example/id \
+COGNITO_USER_POOL_ID=ap-southeast-1_XXXXXXXXX \
+COGNITO_CLIENT_ID=xxxxxxxxxxxxxxxxxxxxxxxxxx \
 SSH_KEY_PROVIDER=env \
 SSH_PRIVATE_KEY_PEM="$(cat ~/.ssh/id_ed25519)" \
 SSH_CONNECT_TIMEOUT=10s \
@@ -110,10 +115,9 @@ SSH work; an STS token alone is insufficient.
 
 Startup requires `AWS_REGION`, `ALB_ARN`, `COGNITO_CLIENT_ID`, and either
 `COGNITO_ISSUER` or `COGNITO_USER_POOL_ID` (the issuer is derived from the pool
-and region). Deploy these settings before promoting the strict identity image.
-Check active sessions and allow them to finish before the Recreate rollout.
-Health and specification routes remain exempt. Automation operations retain
-their existing workload capability authentication.
+and region). Configure these values before startup. Allow active sessions to
+finish before a `Recreate` rollout. Health and specification routes are exempt;
+automation operations use workload capability authentication.
 
 Browser WebSocket upgrades must send an `Origin` that exactly matches one of
 the comma-separated `WEBSOCKET_ALLOWED_ORIGINS`. A rejected or malformed
@@ -141,8 +145,7 @@ The session token must belong to the authenticated Cognito user. Its signed
 claims must match Session Manager metadata and include the target SSH address,
 username, credential secret ID, and pinned host public key.
 
-Local HTTP tests inject a verifier backed by signed P-256 fixtures and a local
-key endpoint. There is no runtime identity bypass or unsigned-header mode.
+Local HTTP tests use signed P-256 fixtures and an injected key endpoint.
 Interactive testing uses the Cognito-authenticated ALB route.
 
 ## Terminal Protocol
@@ -178,21 +181,10 @@ initialization. Empty heartbeat packets are accepted for owner and observer
 attachments, do not touch the SSH shell or audit stream, and exist only to keep
 the authenticated WebSocket transport alive.
 
-## API Specifications
+## API specifications
 
-The HTTP OpenAPI contract is checked in at `api/openapi.yaml` and is served
-unauthenticated at:
-
-```http
-GET /openapi.yaml
-```
-
-The terminal WebSocket AsyncAPI contract is checked in at `api/asyncapi.yaml`
-and is served unauthenticated at:
-
-```http
-GET /asyncapi.yaml
-```
+- [OpenAPI](api/openapi.yaml): `GET /openapi.yaml`.
+- [Terminal AsyncAPI](api/asyncapi.yaml): `GET /asyncapi.yaml`.
 
 Business endpoints require `x-api-version: 1`. `GET /healthz`,
 `GET /openapi.yaml`, and `GET /asyncapi.yaml` are exempt. Browser WebSocket
@@ -202,17 +194,11 @@ should send `x-api-version: 1`.
 Successful probe request logs are suppressed; failed probe responses still emit
 request logs.
 
-## API contract verification
+## CI
 
-`api/openapi.yaml` is the checked-in HTTP contract, served byte-for-byte at
-`GET /openapi.yaml`. CI validates it with `openapi-spec-validator==0.9.0`.
-Handler tests validate representative success and error responses against its
-schemas, including missing and unsupported API versions. Business HTTP calls
-require `x-api-version: 1`; the specification declares route exemptions and
-any transport-specific alternatives. Run the repository test suite when
-changing handlers or response models, and update the contract in the same PR.
+CI validates the OpenAPI contract with `openapi-spec-validator==0.9.0`; handler tests check success,
+error and API-version responses. Update the specification alongside handler changes.
 
-The Image workflow runs only after successful CI for a push to `main`. It builds
-the tested source SHA, retains that SHA as a traceability tag, and promotes the
-build's `sha256` digest through a Kubernetes PR. Promotion requires the digest;
-Argo CD deploys that immutable reference after the GitOps PR is merged.
+After successful `main` CI, the Image workflow builds the tested source SHA
+and opens a Kubernetes promotion PR with its immutable image digest. Argo CD
+deploys after that PR is merged; the commit tag provides source traceability.
